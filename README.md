@@ -1,6 +1,10 @@
-# Cognitive Agent Modular Engineering (monorepo)
+# Autopoiesis
 
 **[中文版](README.zh-CN.md)** | English
+
+*Autopoiesis* (Greek: "self-creation", Maturana & Varela) — a system that
+produces itself. This monorepo engineers the minimal conditions for life in
+a learning model, then lets it grow itself.
 
 Implemented according to the 24+3 module plan. Each module = an independent project
 (own directory, pyproject, tests, versioning, and docs), ready to be split into
