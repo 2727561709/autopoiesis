@@ -1,6 +1,7 @@
 """cog-world: M26 世界环境模块公开 API。
+cog-world: public API of the M26 world-environment module.
 
-用法:
+用法 / usage:
     from cog_world import World
     world = World(size=10, n_food=10, seed=0)
     aid = world.add_agent()

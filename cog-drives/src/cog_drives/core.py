@@ -1,9 +1,17 @@
 """M12 驱动系统模块主实现。
+M12 drive system — main implementation.
 
 职责：稳态驱动的维持、衰减、恢复与危机判定。
+Responsibilities: maintain, decay, restore homeostatic drives and
+detect crises.
 模型：每个驱动有内部值 v ∈ [0, 1] 与设定点 s（默认 1.0）。
+Model: each drive has an internal value v ∈ [0, 1] and a setpoint s
+(default 1.0).
 每个时间步 v 先按 decay 衰减（模拟持续消耗），再叠加动作效果。
+Each step, v first decays by `decay` (continuous consumption), then
+action effects are applied.
 缺口 deficit = clamp(s - v, 0, 1)；缺口超过阈值即危机。
+Deficit = clamp(s - v, 0, 1); a deficit above the threshold is a crisis.
 """
 from __future__ import annotations
 
@@ -18,11 +26,16 @@ __all__ = ["DriveSystem"]
 
 class DriveSystem:
     """稳态驱动系统。
+    Homeostatic drive system.
 
     Args:
         decay: 每步衰减系数（0, 1]，1 表示不衰减。
+               Per-step decay factor in (0, 1]; 1 means no decay.
         crisis_threshold: 缺口超过该值判定为危机（[0, 1]）。
+               A deficit above this counts as a crisis (in [0, 1]).
         setpoints: 各驱动的设定点（默认全部 1.0，好奇可设低一些）。
+               Per-drive setpoints (all default to 1.0; curiosity may be
+               set lower).
     """
 
     def __init__(self, decay: float = 0.995, crisis_threshold: float = 0.15,
@@ -45,11 +58,15 @@ class DriveSystem:
     # ------------------------------------------------------------------ API
     def step(self, effects: Effects | None = None) -> Dict[str, float]:
         """推进一步：先衰减，再叠加效果，最后裁剪到 [0, 1]。
+        Advance one step: decay first, then apply effects, then clip
+        to [0, 1].
 
         Args:
             effects: {"energy": +0.3, "curiosity": -0.1, ...}，未知键抛错。
+                     {"energy": +0.3, "curiosity": -0.1, ...}; unknown
+                     keys raise DriveError.
         Returns:
-            更新后的驱动值字典。
+            更新后的驱动值字典。The updated drive-value dict.
         """
         eff = dict(effects or {})
         for k in eff:
@@ -61,28 +78,33 @@ class DriveSystem:
         return dict(self.values)
 
     def deficit(self) -> Dict[str, float]:
-        """各驱动的缺口（设定点 - 当前值，裁剪到 [0, 1]）。"""
+        """各驱动的缺口（设定点 - 当前值，裁剪到 [0, 1]）。
+        Per-drive deficit (setpoint - value, clipped to [0, 1])."""
         return {d: float(np.clip(self.setpoints[d] - self.values[d], 0.0, 1.0))
                 for d in DRIVE_NAMES}
 
     def deficit_vector(self) -> np.ndarray:
-        """缺口向量，形状 (5,)，顺序 = DRIVE_NAMES。"""
+        """缺口向量，形状 (5,)，顺序 = DRIVE_NAMES。
+        Deficit vector, shape (5,), ordered by DRIVE_NAMES."""
         return np.array([self.deficit()[d] for d in DRIVE_NAMES])
 
     def in_crisis(self) -> List[str]:
-        """处于危机状态的驱动名列表。"""
+        """处于危机状态的驱动名列表。
+        Names of the drives currently in crisis."""
         return [d for d, gap in self.deficit().items() if gap > self.crisis_threshold]
 
     def to_tensor(self) -> np.ndarray:
-        """驱动值向量，形状 (5,)，顺序 = DRIVE_NAMES。"""
+        """驱动值向量，形状 (5,)，顺序 = DRIVE_NAMES。
+        Drive-value vector, shape (5,), ordered by DRIVE_NAMES."""
         return np.array([self.values[d] for d in DRIVE_NAMES], dtype=np.float64)
 
     def state(self) -> Dict[str, float]:
-        """完整状态（值 + 缺口），用于日志/可视化。"""
+        """完整状态（值 + 缺口），用于日志/可视化。
+        Full state (values + deficits), for logging/visualization."""
         d = self.deficit()
         return {f"{k}": self.values[k] for k in DRIVE_NAMES} | {
             f"{k}_deficit": d[k] for k in DRIVE_NAMES}
 
     def reset(self) -> None:
-        """恢复到设定点。"""
+        """恢复到设定点。Restore all drives to their setpoints."""
         self.values = {d: self.setpoints[d] for d in DRIVE_NAMES}

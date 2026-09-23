@@ -1,13 +1,25 @@
 """M14 全局工作空间模块主实现。
+M14 global workspace — main implementation.
 
 职责：多源竞争性广播，决定注意焦点。
+Responsibilities: competitive multi-source broadcast; decides the
+attention focus.
 
 模型（全局工作空间理论的向量化近似）：
+Model (a vectorized approximation of Global Workspace Theory):
 1. 各源（感知/记忆/情绪/目标）经各自的随机投影 + tanh 映射到广播空间。
+   Each source (perception/memory/emotion/goal) is mapped into the
+   broadcast space via its own random projection + tanh.
 2. 竞争：全局上下文 comp = tanh(Σ hᵢ)，每个源的得分 = ⟨hᵢ, comp⟩ / √d
    （与当前整体语境越一致的源越显著）。
+   Competition: global context comp = tanh(Σ hᵢ); each source's score
+   = ⟨hᵢ, comp⟩ / √d (sources more consistent with the overall
+   context become more salient).
 3. 广播：broadcast = Σ softmax(scoreᵢ / T) · hᵢ，权重即注意焦点，
    可解释、可记录（供 M17 元认知 / M23 可视化使用）。
+   Broadcast: broadcast = Σ softmax(scoreᵢ / T) · hᵢ; the weights ARE
+   the attention focus — interpretable and recordable (for M17
+   metacognition / M23 visualization).
 """
 from __future__ import annotations
 
@@ -24,12 +36,16 @@ __all__ = ["Workspace"]
 
 class Workspace:
     """全局工作空间。
+    Global workspace.
 
     Args:
         source_dims: {"perc": d1, "mem": d2, ...} 至少一个源，键必须属于
             ("perc", "mem", "emo", "goal")；未配置的源在 forward 中传了会报错。
-        broadcast_dim: 广播空间维度。
-        seed: 投影初始化种子（可复现）。
+            {"perc": d1, "mem": d2, ...} with at least one source; keys
+            must be in ("perc", "mem", "emo", "goal"); passing an
+            unconfigured source to forward raises.
+        broadcast_dim: 广播空间维度。Broadcast-space dimension.
+        seed: 投影初始化种子（可复现）。Projection-init seed (reproducible).
     """
 
     def __init__(self, source_dims: Mapping[str, int], broadcast_dim: int = 64,
@@ -60,14 +76,20 @@ class Workspace:
                 goal: Optional[SourceVector] = None,
                 temperature: float = 1.0) -> BroadcastResult:
         """多源竞争广播。
+        Competitive multi-source broadcast.
 
         Args:
             perc/mem/emo/goal: 各源向量，None 表示该源本步不参与竞争。
+                Source vectors; None means the source sits out this step.
             temperature: softmax 温度（>0），越小竞争越尖锐。
+                Softmax temperature (>0); lower = sharper competition.
 
         Returns:
             (broadcast, weights)：广播向量 (broadcast_dim,) 与
             各源注意力权重 {"perc": w, ...}（只含本步激活的源，和为 1）。
+            (broadcast, weights): the broadcast vector (broadcast_dim,)
+            and per-source attention weights {"perc": w, ...} (only the
+            sources active this step; they sum to 1).
         """
         if temperature <= 0:
             raise WorkspaceError(f"temperature must be > 0, got {temperature!r}")
@@ -89,6 +111,7 @@ class Workspace:
             hidden[k] = np.tanh(x @ self._proj[k] + self._bias[k])
 
         # 竞争：全局语境 = 各源隐表示之和的 tanh
+        # Competition: global context = tanh of the sum of source hiddens
         context = np.tanh(sum(hidden.values()))
         scores = {k: float(h @ context) / np.sqrt(self.broadcast_dim)
                   for k, h in hidden.items()}
@@ -100,6 +123,8 @@ class Workspace:
 
 
 def _softmax_dict(scores: Dict[str, float], temperature: float) -> Dict[str, float]:
+    """数值稳定的按温度 softmax（字典版）。Numerically stable tempered
+    softmax over a dict."""
     m = max(scores.values())
     exps = {k: np.exp((s - m) / temperature) for k, s in scores.items()}
     total = sum(exps.values())

@@ -1,10 +1,19 @@
 """M02 日志模块主实现。
+M02 logging module — main implementation.
 
 职责：结构化日志（JSONL）、指标记录、实验追踪。
-设计要点：
+Responsibilities: structured logging (JSONL), metric recording,
+experiment tracking.
+设计要点 / design notes:
 - 异步写入：后台线程消费队列，主循环零阻塞（可关闭）。
+  Async writes: a background thread drains a queue so the main loop
+  never blocks (can be disabled).
 - 标准输出走 logging，结构化事件落 events.jsonl，指标落 metrics.jsonl。
+  Human-readable output goes through logging; structured events land
+  in events.jsonl and metrics in metrics.jsonl.
 - 可选 TensorBoard 后端（安装了 tensorboard 才启用）。
+  Optional TensorBoard backend (enabled only when tensorboard is
+  installed).
 """
 from __future__ import annotations
 
@@ -24,14 +33,21 @@ _SENTINEL = object()
 
 class Logger:
     """结构化日志器。
+    Structured logger.
 
     Args:
-        log_dir: 输出目录（自动创建）。
+        log_dir: 输出目录（自动创建）。Output directory (auto-created).
         experiment_name: 实验名，作为输出前缀。
+            Experiment name, used as the output prefix.
         level: 标准日志级别（DEBUG/INFO/WARNING/ERROR）。
+            Standard log level (DEBUG/INFO/WARNING/ERROR).
         async_mode: True 时后台线程写入；False 时同步写（测试用）。
+            True for background-thread writes; False for synchronous
+            writes (used in tests).
         console: 是否同时输出到 stdout。
+            Whether to also print to stdout.
         queue_size: 异步队列上限，满则丢弃并计数。
+            Async queue cap; overflow items are dropped and counted.
     """
 
     def __init__(
@@ -60,9 +76,9 @@ class Logger:
             h.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
             self._py_logger.addHandler(h)
 
-        # 可选 TensorBoard 后端
+        # 可选 TensorBoard 后端 / optional TensorBoard backend
         self._tb = None
-        try:  # pragma: no cover - 取决于环境
+        try:  # pragma: no cover - 取决于环境 / environment-dependent
             from torch.utils.tensorboard import SummaryWriter  # type: ignore
             self._tb = SummaryWriter(log_dir=str(self.log_dir))
         except Exception:
@@ -81,7 +97,9 @@ class Logger:
 
     # ------------------------------------------------------------------ API
     def log(self, event: Mapping[str, Any], level: str = "INFO") -> None:
-        """记录一条结构化事件。event 必须是可 JSON 序序列化的映射。"""
+        """记录一条结构化事件。event 必须是可 JSON 序序列化的映射。
+        Log one structured event. `event` must be a JSON-serializable
+        mapping."""
         record = {
             "ts": time.time(),
             "exp": self.experiment_name,
@@ -91,7 +109,7 @@ class Logger:
         self._emit(("event", record), record)
 
     def metric(self, name: str, value: float, step: Optional[int] = None) -> None:
-        """记录一个标量指标。"""
+        """记录一个标量指标。Log one scalar metric."""
         record = {
             "ts": time.time(),
             "exp": self.experiment_name,
@@ -103,7 +121,7 @@ class Logger:
             self._tb.add_scalar(name, record["value"], record["step"])
         self._emit(("metric", record), record)
 
-    # 便捷级别
+    # 便捷级别 / convenience levels
     def debug(self, msg: str, **kw: Any) -> None:
         self.log({"msg": msg, **kw}, level="DEBUG")
 
@@ -117,16 +135,19 @@ class Logger:
         self.log({"msg": msg, **kw}, level="ERROR")
 
     def flush(self) -> None:
-        """等待异步队列全部落盘（同步模式下为空操作）。"""
+        """等待异步队列全部落盘（同步模式下为空操作）。
+        Wait until the async queue is fully drained (a no-op in
+        synchronous mode)."""
         if self._async:
             self._queue.join()
 
     def close(self) -> None:
-        """停止后台线程并落盘。幂等。"""
+        """停止后台线程并落盘。幂等。
+        Stop the background thread and flush. Idempotent."""
         if self._async and self._thread.is_alive():
             self._queue.put(_SENTINEL)
             self._thread.join(timeout=10)
-            self._thread = threading.Thread(target=lambda: None)  # 防止重复 join
+            self._thread = threading.Thread(target=lambda: None)  # 防止重复 join / prevents double join
         if self._tb is not None:  # pragma: no cover
             self._tb.close()
 
@@ -142,7 +163,7 @@ class Logger:
     def metrics_path(self) -> Path:
         return self._metrics_path
 
-    # ------------------------------------------------------------------ 内部
+    # -------------------------------------------------------------- internals
     def _emit(self, item: Any, record: Mapping[str, Any]) -> None:
         if self._async:
             try:
@@ -151,7 +172,7 @@ class Logger:
                 self._stats.dropped += 1
         else:
             self._write(item)
-        # 控制台摘要
+        # 控制台摘要 / console summary
         if self._console:
             msg = record.get("event", {}).get("msg") or record.get("name", "")
             self._py_logger.log(
@@ -159,7 +180,9 @@ class Logger:
             )
 
     def _worker(self, q: "queue.Queue[Any]") -> None:
-        """消费线程。绑定启动时的队列引用，避免运行中替换导致计数失衡。"""
+        """消费线程。绑定启动时的队列引用，避免运行中替换导致计数失衡。
+        Consumer thread. Bound to the queue captured at start so a
+        mid-run swap cannot skew the join counter."""
         while True:
             item = q.get()
             try:
@@ -182,7 +205,9 @@ class Logger:
 
 
 def _safe(obj: Any) -> Any:
-    """递归地把不可序列化的叶子降级为 repr 字符串，其余保持原样。"""
+    """递归地把不可序列化的叶子降级为 repr 字符串，其余保持原样。
+    Recursively degrade non-serializable leaves to repr strings,
+    leaving everything else untouched."""
     if isinstance(obj, Mapping):
         return {str(k) if not isinstance(k, str) else k: _safe(v) for k, v in obj.items()}
     if isinstance(obj, (list, tuple)):

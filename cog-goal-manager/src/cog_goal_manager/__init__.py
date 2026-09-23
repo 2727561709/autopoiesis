@@ -1,6 +1,7 @@
 """cog-goal-manager: M15 目标管理模块公开 API。
+cog-goal-manager: public API of the M15 goal-management module.
 
-用法:
+用法 / usage:
     from cog_goal_manager import GoalManager
     gm = GoalManager()
     gm.update_from_drives({"energy": 0.4, "integrity": 0.0})

@@ -16,3 +16,4 @@ runs/**/*.log
 .codebuddy/
 .DS_Store
 Thumbs.db
+test_out.txt

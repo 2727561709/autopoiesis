@@ -1,6 +1,7 @@
 """cog-config: M01 配置模块公开 API。
+cog-config: public API of the M01 configuration module.
 
-用法:
+用法 / usage:
     from cog_config import Config
     cfg = Config.load("config.yaml")
 """

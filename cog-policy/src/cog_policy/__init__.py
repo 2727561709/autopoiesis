@@ -1,6 +1,7 @@
 """cog-policy: M05 行动策略模块公开 API。
+cog-policy: public API of the M05 action-policy module.
 
-用法:
+用法 / usage:
     from cog_policy import Policy
     pol = Policy(latent_dim=128, action_dim=4)
     dist, value = pol(z)

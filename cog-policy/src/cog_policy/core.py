@@ -1,8 +1,14 @@
 """M05 行动策略模块主实现。
+M05 action policy — main implementation.
 
 职责：从潜状态 z 生成动作分布 + 价值估计。
+Responsibilities: produce an action distribution + value estimate from
+the latent state z.
 实现：对角高斯策略（mean 由 MLP 给出，std 由可学习参数经软限幅给出），
 价值头独立输出 V(z)。使用 M04 风格的 NumPy 微型网络，接口与 torch 对齐。
+Implementation: a diagonal-Gaussian policy (mean from an MLP, std from
+a learnable parameter via soft clamping) with an independent value head
+V(z). Uses the M04-style NumPy micro-network with a torch-aligned API.
 """
 from __future__ import annotations
 
@@ -14,17 +20,20 @@ from .nn import Linear, Sequential, Tanh
 from .types import DiagGaussian, PolicyError
 
 #: log_std 的硬限幅，避免 std 塌缩到 0 或爆炸
+#: Hard clamp on log_std: prevents std from collapsing to 0 or exploding
 LOG_STD_MIN, LOG_STD_MAX = -5.0, 2.0
 
 
 class Policy:
     """高斯策略 + 价值头。
+    Gaussian policy + value head.
 
     Args:
         latent_dim: 输入潜向量维度（来自 M04）。
-        action_dim: 动作维度。
-        hidden_dim: 隐层宽度。
-        seed: 随机种子。
+            Input latent dimension (from M04).
+        action_dim: 动作维度。Action dimension.
+        hidden_dim: 隐层宽度。Hidden-layer width.
+        seed: 随机种子。Random seed.
     """
 
     def __init__(self, latent_dim: int, action_dim: int, hidden_dim: int = 64,
@@ -43,16 +52,19 @@ class Policy:
             Linear(hidden_dim, 1, rng),
         )
         # 可学习 log_std（与状态无关），初始化为 0 => std=1
+        # Learnable state-independent log_std, initialized to 0 => std=1
         self.log_std = np.zeros(action_dim)
         self._dlog_std = np.zeros(action_dim)
 
     # ------------------------------------------------------------------ API
     def forward(self, z: np.ndarray) -> Tuple[DiagGaussian, np.ndarray]:
-        """z -> (dist, value)。
+        """z -> (dist, value)。z -> (dist, value).
 
         Returns:
             dist: DiagGaussian，支持 sample/log_prob/entropy/deterministic。
+                DiagGaussian with sample/log_prob/entropy/deterministic.
             value: V(z)，形状 ()（标量）或 (B,)（批量）。
+                V(z), shape () (scalar) or (B,) (batch).
         """
         z = self._coerce(z)
         mean = self.mu_net.forward(z)
@@ -66,7 +78,7 @@ class Policy:
 
     def act(self, z: np.ndarray, rng: np.random.Generator,
             deterministic: bool = False) -> Tuple[np.ndarray, float, float]:
-        """采样一步动作。
+        """采样一步动作。Sample one action.
 
         Returns:
             (action, log_prob, value)
@@ -81,10 +93,12 @@ class Policy:
         v = float(value) if np.ndim(value) == 0 else value
         return action, float(log_prob), float(v)
 
-    # ------------------------------------------------------------------ 训练
+    # ------------------------------------------------------------- training
     def backward(self, grad_mean: np.ndarray, grad_value: np.ndarray,
                  grad_log_std: np.ndarray | None = None) -> None:
-        """手动回传（策略梯度 + 价值回归外部已算好对输出的梯度）。"""
+        """手动回传（策略梯度 + 价值回归外部已算好对输出的梯度）。
+        Manual backprop (the caller has already computed the gradients
+        w.r.t. the outputs for the policy-gradient + value losses)."""
         self.mu_net.backward(np.asarray(grad_mean, dtype=np.float64))
         self.value_net.backward(np.asarray(grad_value, dtype=np.float64))
         if grad_log_std is not None:
@@ -104,8 +118,9 @@ class Policy:
         self.value_net.sgd_step(lr)
         self.log_std -= lr * self._dlog_std
 
-    # ------------------------------------------------------------------ 存取
+    # ------------------------------------------------------- save / restore
     def state_dict(self) -> Mapping[str, np.ndarray]:
+        """权重快照。Weight snapshot."""
         return {
             "latent_dim": self.latent_dim, "action_dim": self.action_dim,
             "mu_W1": self.mu_net.layers[0].W, "mu_b1": self.mu_net.layers[0].b,
@@ -125,7 +140,7 @@ class Policy:
             net.layers[2].b = np.array(sd[f"{p}_b2"], dtype=np.float64)
         self.log_std = np.array(sd["log_std"], dtype=np.float64)
 
-    # ------------------------------------------------------------------ 内部
+    # -------------------------------------------------------------- internals
     def _coerce(self, z: np.ndarray) -> np.ndarray:
         z = np.asarray(z, dtype=np.float64)
         if z.shape[-1] != self.latent_dim:

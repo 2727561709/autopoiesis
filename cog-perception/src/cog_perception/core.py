@@ -1,7 +1,12 @@
 """M04 感知编码模块主实现。
+M04 perception encoding — main implementation.
 
 职责：把原始观测（向量 / 批量 / 多模态字典）编码成有界潜向量 z。
+Responsibilities: encode raw observations (vector / batch / multimodal
+dict) into a bounded latent vector z.
 输出经 tanh 有界化到 (-1, 1)，保证下游模块（记忆/世界模型）数值稳定。
+The output is tanh-bounded to (-1, 1), keeping downstream modules
+(memory / world model) numerically stable.
 """
 from __future__ import annotations
 
@@ -17,12 +22,16 @@ __all__ = ["Encoder"]
 
 class Encoder:
     """观测编码器。
+    Observation encoder.
 
     Args:
         obs_dim: 观测维度（多模态字典按字段顺序拼接后的总维度）。
-        latent_dim: 潜向量维度 z。
-        hidden_dim: 隐层宽度。
+            Observation dimension (for multimodal dicts, the total
+            dimension after concatenation in field order).
+        latent_dim: 潜向量维度 z。Latent-vector dimension z.
+        hidden_dim: 隐层宽度。Hidden-layer width.
         seed: 随机种子（同种子 => 同初始化 => 可复现）。
+            Random seed (same seed => same init => reproducible).
     """
 
     def __init__(self, obs_dim: int, latent_dim: int = 128, hidden_dim: int = 256,
@@ -42,9 +51,12 @@ class Encoder:
     # ------------------------------------------------------------------ API
     def forward(self, obs: Observation) -> np.ndarray:
         """obs -> z。支持 (obs_dim,) / (B, obs_dim) / {name: vector} 三种输入。
+        obs -> z. Accepts (obs_dim,) / (B, obs_dim) / {name: vector}.
 
         Returns:
             潜向量，形状 (latent_dim,) 或 (B, latent_dim)，值域 (-1, 1)。
+            Latent vector, shape (latent_dim,) or (B, latent_dim), in
+            (-1, 1).
         """
         x = self._coerce(obs)
         if x.shape[-1] != self.obs_dim:
@@ -55,9 +67,10 @@ class Encoder:
 
     __call__ = forward
 
-    # ------------------------------------------------------------------ 训练
+    # ------------------------------------------------------------- training
     def backward(self, grad_z: np.ndarray) -> np.ndarray:
-        """d L / d obs。grad_z 形状须与 forward 输出一致。"""
+        """d L / d obs。grad_z 形状须与 forward 输出一致。
+        d L / d obs. grad_z must match the forward output shape."""
         return self.net.backward(np.asarray(grad_z, dtype=np.float64))
 
     def parameters(self) -> List[np.ndarray]:
@@ -69,9 +82,10 @@ class Encoder:
     def sgd_step(self, lr: float) -> None:
         self.net.sgd_step(lr)
 
-    # ------------------------------------------------------------------ 存取
+    # ------------------------------------------------------- save / restore
     def state_dict(self) -> Mapping[str, Any]:
-        """权重快照（可直接 pickle / 交给 M03 存档）。"""
+        """权重快照（可直接 pickle / 交给 M03 存档）。
+        Weight snapshot (directly picklable / hand to M03 checkpoint)."""
         return {
             "obs_dim": self.obs_dim,
             "latent_dim": self.latent_dim,
@@ -91,8 +105,10 @@ class Encoder:
         self.net.layers[2].W = np.array(sd["W2"], dtype=np.float64)
         self.net.layers[2].b = np.array(sd["b2"], dtype=np.float64)
 
-    # ------------------------------------------------------------------ 内部
+    # -------------------------------------------------------------- internals
     def _coerce(self, obs: Observation) -> np.ndarray:
+        """把三种输入形态统一为 (in,) 或 (B, in)。
+        Normalize the three input forms to (in,) or (B, in)."""
         if isinstance(obs, Mapping):
             parts = [np.asarray(v, dtype=np.float64).ravel() for v in obs.values()]
             if not parts:

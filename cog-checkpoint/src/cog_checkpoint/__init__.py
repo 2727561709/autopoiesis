@@ -1,6 +1,7 @@
 """cog-checkpoint: M03 存档模块公开 API。
+cog-checkpoint: public API of the M03 checkpoint module.
 
-用法:
+用法 / usage:
     from cog_checkpoint import Checkpoint
     Checkpoint.save({"step": 10}, "ckpt/agent.ckpt")
     state = Checkpoint.load("ckpt/agent.ckpt")

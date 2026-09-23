@@ -1,7 +1,8 @@
 """汇总 runs/*/eval_report.log，输出多组横向对比表。
+Aggregate runs/*/eval_report.log into a cross-run comparison table.
 
-用法：
-    python -m homeo_rl.compare            # 全部有评测结果的组
+用法 / usage:
+    python -m homeo_rl.compare            # 全部有评测结果的组 / all runs with reports
     python -m homeo_rl.compare --runs base scarce curriculum explore abl-wm
 """
 from __future__ import annotations
@@ -15,6 +16,8 @@ _DEFAULT_RUNS = ("base", "scarce", "curriculum", "explore", "abl-wm")
 
 
 def _load(run: str, runs_root: Path) -> Dict | None:
+    """读取单组评测报告，不存在或损坏时返回 None。
+    Load one run's eval report; None if missing or malformed."""
     log = runs_root / run / "eval_report.log"
     if not log.exists():
         return None
@@ -25,6 +28,8 @@ def _load(run: str, runs_root: Path) -> Dict | None:
 
 
 def summarize(run: str, rep: Dict) -> Dict:
+    """从评测报告抽取对比表所需字段。
+    Extract the fields needed for the comparison table."""
     f = rep["foraging"]
     d = rep["direction_modulation"]
     approach = d["food_approach_rate"]
@@ -42,6 +47,7 @@ def summarize(run: str, rep: Dict) -> Dict:
     }
 
 
+# (字段, 列标题, 格式) / (key, column label, format)
 _COLS = [
     ("run", "组名", "<10"),
     ("survival", "存活", ">7"),
@@ -55,7 +61,8 @@ _COLS = [
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="汇总评测对比表")
+    ap = argparse.ArgumentParser(
+        description="汇总评测对比表 / aggregate evaluation comparison table")
     ap.add_argument("--runs", nargs="+", default=list(_DEFAULT_RUNS))
     ap.add_argument("--root", type=str, default="runs")
     args = ap.parse_args()
@@ -67,7 +74,7 @@ def main() -> None:
             rows.append(summarize(run, rep))
 
     if not rows:
-        print("暂无评测结果")
+        print("暂无评测结果 / no evaluation reports yet")
         return
 
     header = "".join(f"{label:{fmt}} " for _, label, fmt in _COLS)

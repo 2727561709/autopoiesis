@@ -1,11 +1,17 @@
 """阶段 A 训练入口：PPO + 内稳态奖励 + 预测误差内在奖励。
+Stage-A training entry point: PPO + homeostatic reward + prediction-error
+intrinsic reward.
 
 总奖励 r = r_homeostatic + intrinsic_coef * clip(pe / EMA(pe), 0, pe_clip)
+Total reward r = r_homeostatic + intrinsic_coef * clip(pe / EMA(pe), 0, pe_clip)
 
     r_homeostatic —— 缺口缩减（唯一外部回报，来自环境）
+    r_homeostatic — deficit reduction (the ONLY external reward, from the env)
     pe            —— 世界模型预测误差（好奇式内在驱动，自我归一化）
+    pe            — world-model prediction error (curiosity-style intrinsic
+    drive, self-normalized)
 
-用法：
+用法 / usage:
     python -m homeo_rl.train --updates 500 --out runs/base
 """
 from __future__ import annotations
@@ -25,11 +31,13 @@ from torch.distributions import Categorical
 from .env import EnvConfig, HomeostaticGridWorld, N_ACTIONS
 from .model import HomeoActorCritic
 
-NONE_ACTION = N_ACTIONS  # 上一步动作 embedding 的"空"索引
+NONE_ACTION = N_ACTIONS  # 上一步动作 embedding 的"空"索引 / "none" index for the previous-action embedding
 
 
 @dataclass
 class PPOConfig:
+    """PPO 超参数。PPO hyperparameters."""
+
     updates: int = 500
     num_envs: int = 8
     rollout: int = 128
@@ -41,17 +49,18 @@ class PPOConfig:
     minibatch: int = 256
     entropy_coef: float = 0.01
     value_coef: float = 0.5
-    wm_coef: float = 0.5          # 世界模型辅助损失权重
-    intrinsic_coef: float = 0.02  # 预测误差内在奖励权重
-    pe_clip: float = 5.0          # 归一化预测误差上限
-    pe_ema: float = 0.99          # 预测误差水平的指数滑动平均
+    wm_coef: float = 0.5          # 世界模型辅助损失权重 / world-model auxiliary loss weight
+    intrinsic_coef: float = 0.02  # 预测误差内在奖励权重 / prediction-error intrinsic reward weight
+    pe_clip: float = 5.0          # 归一化预测误差上限 / cap on normalized prediction error
+    pe_ema: float = 0.99          # 预测误差水平的指数滑动平均 / EMA of the prediction-error level
     grad_norm: float = 0.5
     seed: int = 0
     # 课程：食物密度退火（充裕 → 稀缺）
+    # Curriculum: anneal food density (abundant -> scarce)
     food_anneal: bool = False
     food_start: int = 8
     food_end: int = 2
-    # 模型尺寸
+    # 模型尺寸 / model size
     d_model: int = 128
     nhead: int = 4
     n_layers: int = 4
@@ -59,7 +68,8 @@ class PPOConfig:
 
 
 class _Rollout:
-    """单个 update 周期的轨迹缓存。"""
+    """单个 update 周期的轨迹缓存。
+    Trajectory buffer for a single update cycle."""
 
     def __init__(self) -> None:
         self.vision: List[np.ndarray] = []
@@ -68,7 +78,7 @@ class _Rollout:
         self.actions: List[np.ndarray] = []
         self.logp: List[np.ndarray] = []
         self.values: List[np.ndarray] = []
-        self.rewards: List[np.ndarray] = []   # 总奖励（内稳态 + 内在）
+        self.rewards: List[np.ndarray] = []   # 总奖励（内稳态 + 内在）/ total reward (homeostatic + intrinsic)
         self.dones: List[np.ndarray] = []
         self.next_vision: List[np.ndarray] = []
         self.next_intero: List[np.ndarray] = []
@@ -78,9 +88,11 @@ class _Rollout:
             getattr(self, k).append(v)
 
     def stack(self, key: str) -> np.ndarray:
+        """按时间堆叠：List[(N, ...)] -> (T, N, ...)。Stack over time."""
         return np.stack(getattr(self, key))  # (T, N, ...)
 
     def flat(self, key: str) -> np.ndarray:
+        """展平 (T, N, ...) -> (T*N, ...)。Flatten time and env axes."""
         arr = np.asarray(getattr(self, key))  # (T, N, ...)
         return arr.reshape(-1, *arr.shape[2:])
 
@@ -88,7 +100,9 @@ class _Rollout:
 def _compute_gae(rewards: np.ndarray, values: np.ndarray, dones: np.ndarray,
                  last_value: np.ndarray, gamma: float, lam: float
                  ) -> tuple[np.ndarray, np.ndarray]:
-    """GAE，逐环境列计算。rewards/values/dones: (T, N)；返回 (adv, returns)。"""
+    """GAE，逐环境列计算。rewards/values/dones: (T, N)；返回 (adv, returns)。
+    GAE computed per environment column. rewards/values/dones: (T, N);
+    returns (adv, returns)."""
     T, N = rewards.shape
     adv = np.zeros((T, N), dtype=np.float32)
     lastgaelam = np.zeros(N, dtype=np.float32)
@@ -105,7 +119,8 @@ def train(ppo_cfg: PPOConfig,
           env_cfg: Optional[EnvConfig] = None,
           out_dir: Path = Path("runs/exp-a"),
           device: Optional[str] = None) -> Path:
-    """运行完整训练，返回 metrics.jsonl 路径。"""
+    """运行完整训练，返回 metrics.jsonl 路径。
+    Run the full training; returns the metrics.jsonl path."""
     cfg = ppo_cfg
     env_cfg = env_cfg or EnvConfig()
     if device is None:
@@ -115,6 +130,7 @@ def train(ppo_cfg: PPOConfig,
     torch.manual_seed(cfg.seed)
     np.random.seed(cfg.seed)
 
+    # 每个环境独立种子 / each env gets its own derived seed
     envs = [HomeostaticGridWorld(
         EnvConfig(**{**asdict(env_cfg), "seed": cfg.seed * 1000 + i}))
         for i in range(cfg.num_envs)]
@@ -130,28 +146,33 @@ def train(ppo_cfg: PPOConfig,
 
     ema_pe: Optional[float] = None
     episodes: List[Dict] = []
-    pending_ret = [0.0] * cfg.num_envs  # 各环境的回合累计内稳态回报
+    # 各环境的回合累计内稳态回报 / per-env running episode homeostatic return
+    pending_ret = [0.0] * cfg.num_envs
     total_steps = 0
     t0 = time.time()
 
     cur_n_food = env_cfg.n_food
     for update in range(1, cfg.updates + 1):
+        # 课程退火：食物密度线性递减（在下次 reset 时生效）
+        # Curriculum annealing: linearly decrease food density (takes
+        # effect at each env's next reset)
         if cfg.food_anneal:
             frac = (update - 1) / max(1, cfg.updates - 1)
             cur_n_food = int(round(cfg.food_start
                                    + (cfg.food_end - cfg.food_start) * frac))
-            for e in envs:  # 在下次 reset 时生效
+            for e in envs:
                 e.cfg.n_food = cur_n_food
         ro = _Rollout()
         prev_a = np.full(cfg.num_envs, NONE_ACTION, dtype=np.int64)
 
+        # ------------------------------------------------------------ 采样 / rollout
         for _ in range(cfg.rollout):
             v = np.stack([e.last_obs["vision"] for e in envs])
             i = np.stack([e.last_obs["intero"] for e in envs])
             tv = torch.from_numpy(v).to(device)
             ti = torch.from_numpy(i).to(device)
             tpa = torch.from_numpy(prev_a).to(device)
-            pa_used = prev_a.copy()  # 本步采样所用的上一步动作
+            pa_used = prev_a.copy()  # 本步采样所用的上一步动作 / prev-action used for this step's sampling
 
             out = model(tv, ti, tpa)
             dist = Categorical(logits=out["logits"])
@@ -165,6 +186,7 @@ def train(ppo_cfg: PPOConfig,
                 _, r, d, info = e.step(int(a_np[k]))
                 pending_ret[k] += r
                 if d:
+                    # 回合结束：记录指标并重置 / episode over: log metrics and reset
                     episodes.append({
                         "ret": pending_ret[k],
                         "len": e.t,
@@ -185,6 +207,9 @@ def train(ppo_cfg: PPOConfig,
             tnv = torch.from_numpy(nv).to(device)
             tni = torch.from_numpy(ni).to(device)
 
+            # 预测误差 -> 内在奖励（对当前误差水平自归一化）
+            # Prediction error -> intrinsic reward (self-normalized
+            # against the running error level)
             with torch.no_grad():
                 pe = model.prediction_error(out, tnv, tni).cpu().numpy()
             if ema_pe is None:
@@ -200,7 +225,7 @@ def train(ppo_cfg: PPOConfig,
                    dones=done, next_vision=nv, next_intero=ni)
             total_steps += cfg.num_envs
 
-        # bootstrap 终值
+        # bootstrap 终值 / bootstrap terminal value
         v = np.stack([e.last_obs["vision"] for e in envs])
         i = np.stack([e.last_obs["intero"] for e in envs])
         with torch.no_grad():
@@ -214,7 +239,7 @@ def train(ppo_cfg: PPOConfig,
                                     last_value, cfg.gamma, cfg.lam)
         adv = (adv - adv.mean()) / (adv.std() + 1e-8)
 
-        # -------------------------------------------------- PPO 更新
+        # -------------------------------------------------- PPO 更新 / PPO update
         n = cfg.num_envs * cfg.rollout
         idx = np.arange(n)
         losses = {"pg": 0.0, "v": 0.0, "wm": 0.0, "ent": 0.0}
@@ -231,11 +256,13 @@ def train(ppo_cfg: PPOConfig,
                 ratio = torch.exp(logp_new - torch.from_numpy(
                     ro.flat("logp")[mb]).to(device))
                 mb_adv = torch.from_numpy(adv.reshape(-1)[mb]).to(device)
+                # PPO-clip 目标 / PPO-clip objective
                 pg = -torch.min(ratio * mb_adv,
                                 ratio.clamp(1 - cfg.clip, 1 + cfg.clip) * mb_adv).mean()
                 v_loss = F.mse_loss(out["value"], torch.from_numpy(
                     returns.reshape(-1)[mb]).to(device))
                 ent = dist.entropy().mean()
+                # 世界模型辅助损失：预测下一步表征 / world-model auxiliary loss
                 tv, tni_t = model.wm_targets(
                     torch.from_numpy(ro.flat("next_vision")[mb]).to(device),
                     torch.from_numpy(ro.flat("next_intero")[mb]).to(device))
@@ -253,7 +280,7 @@ def train(ppo_cfg: PPOConfig,
                 losses["wm"] += wm.item() / _denom
                 losses["ent"] += ent.item() / _denom
 
-        # -------------------------------------------------- 日志
+        # -------------------------------------------------- 日志 / logging
         recent = episodes[-50:]
         if recent:
             ep_ret = float(np.mean([e["ret"] for e in recent]))
@@ -278,6 +305,9 @@ def train(ppo_cfg: PPOConfig,
             print(f"[{update:>4}/{cfg.updates}] steps={total_steps} "
                   f"ret={ep_ret:+.2f} len={ep_len:.0f} surv={survival:.2f} "
                   f"pe={ema_pe:.4f} ({row['elapsed_s']}s)", flush=True)
+        # 保存 checkpoint（记录当前食物密度，供评测还原环境）
+        # Save checkpoint (records the current food density so evaluation
+        # can rebuild the env).
         if update % save_every == 0 or update == cfg.updates:
             torch.save({
                 "model": model.state_dict(),
@@ -290,7 +320,8 @@ def train(ppo_cfg: PPOConfig,
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="阶段A：内稳态RL + 预测误差辅助")
+    ap = argparse.ArgumentParser(
+        description="阶段A：内稳态RL + 预测误差辅助 / Stage A: homeostatic RL + prediction-error assistance")
     ap.add_argument("--updates", type=int, default=500)
     ap.add_argument("--num-envs", type=int, default=8)
     ap.add_argument("--rollout", type=int, default=128)
@@ -301,11 +332,13 @@ def main() -> None:
     ap.add_argument("--n-food", type=int, default=8)
     ap.add_argument("--n-hazard", type=int, default=6)
     ap.add_argument("--food-anneal", action="store_true",
-                    help="课程学习：食物密度从 --food-start 线性退火到 --food-end")
+                    help="课程学习：食物密度从 --food-start 线性退火到 --food-end / "
+                         "curriculum: anneal food density from --food-start to --food-end")
     ap.add_argument("--food-start", type=int, default=8)
     ap.add_argument("--food-end", type=int, default=2)
     ap.add_argument("--coma", action="store_true",
-                    help="休克模式：能量归零不死而昏迷（对照实验）")
+                    help="休克模式：能量归零不死而昏迷（对照实验）/ coma mode: "
+                         "zero energy causes a coma instead of death (control experiment)")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--out", type=str, default="runs/exp-a")
     ap.add_argument("--device", type=str, default=None)
