@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+.pytest_cache/
+.pyrefly/
+
+# 实验产物：大文件不入库，指标与报告保留
+runs/**/*.pt
+runs/**/*.log
+
+# 工具与系统
+.codebuddy/
+.DS_Store
+Thumbs.db

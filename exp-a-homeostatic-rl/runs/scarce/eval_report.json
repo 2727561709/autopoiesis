@@ -1,0 +1,25 @@
+﻿{
+  "checkpoint": "runs\\scarce\\checkpoint.pt",
+  "survival": {
+    "episodes": 20,
+    "mean_steps": 627.65,
+    "max_steps_cap": 1000,
+    "survival_rate": 0.44999999999999996,
+    "mean_final_energy": 0.22024999999999822,
+    "mean_final_integrity": 0.6846000000000003
+  },
+  "foraging": {
+    "trained": {
+      "policy": "trained",
+      "trials": 50,
+      "success_rate": 0.0,
+      "mean_steps_to_food": 30.0
+    },
+    "random_baseline": {
+      "policy": "random",
+      "trials": 50,
+      "success_rate": 0.04,
+      "mean_steps_to_food": 29.56
+    }
+  }
+}

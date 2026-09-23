@@ -1,0 +1,22 @@
+[project]
+name = "homeo-rl"
+version = "0.1.0"
+description = "阶段A：内稳态RL + 预测误差辅助 —— 新物种大模型范式验证实验"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+    "torch>=2.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

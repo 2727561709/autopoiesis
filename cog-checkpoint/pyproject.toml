@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cog-checkpoint"
+version = "0.1.0"
+description = "M03 存档模块：模型权重、记忆、状态的保存与恢复"
+requires-python = ">=3.9"
+dependencies = []
+
+[project.optional-dependencies]
+torch = ["torch>=2.0"]
+dev = ["pytest>=7.0"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
