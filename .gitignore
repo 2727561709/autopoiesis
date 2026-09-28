@@ -9,8 +9,9 @@ build/
 .pyrefly/
 
 # 实验产物：大文件不入库，指标与报告保留
-runs/**/*.pt
-runs/**/*.log
+# （** 前缀使其匹配子目录下的 runs/，如 exp-a-homeostatic-rl/runs/）
+**/runs/**/*.pt
+**/runs/*.log
 
 # 工具与系统
 .codebuddy/

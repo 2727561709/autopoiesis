@@ -1,0 +1,82 @@
+{
+  "checkpoint": "runs/scale16b/checkpoint.pt",
+  "survival": {
+    "episodes": 20,
+    "mean_steps": 604.7,
+    "max_steps_cap": 1000,
+    "survival_rate": 0.25,
+    "mean_final_energy": 0.14699999999999971,
+    "mean_final_integrity": 0.9016000000000002
+  },
+  "foraging": {
+    "trained": {
+      "policy": "trained",
+      "trials": 50,
+      "near_visible": {
+        "distance": 2,
+        "start_energy": 0.3,
+        "horizon": 30,
+        "success_rate": 1.0,
+        "mean_steps_to_food": 3.04
+      },
+      "far_search": {
+        "distance": 4,
+        "start_energy": 0.5,
+        "horizon": 40,
+        "success_rate": 0.74,
+        "mean_steps_to_food": 26.4
+      }
+    },
+    "random_baseline": {
+      "policy": "random",
+      "trials": 50,
+      "near_visible": {
+        "distance": 2,
+        "start_energy": 0.3,
+        "horizon": 30,
+        "success_rate": 0.26,
+        "mean_steps_to_food": 24.4
+      },
+      "far_search": {
+        "distance": 4,
+        "start_energy": 0.5,
+        "horizon": 40,
+        "success_rate": 0.1,
+        "mean_steps_to_food": 38.1
+      }
+    }
+  },
+  "direction_modulation": {
+    "trials": 20,
+    "food_approach_rate": {
+      "up": 1.0,
+      "down": 1.0,
+      "left": 1.0,
+      "right": 1.0
+    },
+    "satiated_approach_rate": 1.0,
+    "hazard_entry_rate": 0.0
+  },
+  "transfer": {
+    "env": {
+      "grid_size": 20,
+      "n_hazard": 12,
+      "n_food": 2
+    },
+    "survival": {
+      "episodes": 20,
+      "mean_steps": 126.3,
+      "max_steps_cap": 1000,
+      "survival_rate": 0.0,
+      "mean_final_energy": 0.0,
+      "mean_final_integrity": 0.8308000000000002
+    },
+    "far_search": {
+      "distance": 4,
+      "start_energy": 0.5,
+      "horizon": 40,
+      "success_rate": 0.48,
+      "mean_steps_to_food": 31.68
+    }
+  }
+}

@@ -230,6 +230,59 @@ repeatedly). This is the minimal implementation of "a body with built-in
 short-term memory", used to avoid re-scanning the same area during
 out-of-view search — we teach it no search strategy whatsoever.
 
+### Attempt (a): Negative Result (2026-09-29)
+
+The annealing endpoint was copied directly from the 12×12 params
+(food_end=2), 500 updates of training:
+
+- Mid-training (update 300, ~6 food) survival climbed to 0.40;
+- As food annealed to 2 it **collapsed to 0.00** (final density
+  2/256 = 0.78%, only half of the 12×12 final density of 1.4%);
+- Satiety modulation degraded at the same time (1.00);
+- Interesting residue: near/far probes still 1.00, and the **transfer
+  probe far = 0.48** (half the search success rate even at 20×20 with
+  double hazards) — search ability partially transfers, but the overall
+  policy degenerated.
+
+Lesson: **anneal by density, not by absolute count**. Attempt (b) uses
+food_end=4 (density 1.6%, matched to the 12×12 endgame) with 800 updates.
+
+### Attempt (b) and Round-3 Conclusions (2026-09-29)
+
+| Metric | (a) | (b) density-matched | 12×12 curriculum |
+|---|---|---|---|
+| Survival (greedy eval) | 0.05 | 0.25 | 0.50 |
+| Survival (training peak) | 0.40 | **0.66** | ~0.5 |
+| near / far | 1.00 / 1.00 | 1.00 / 0.74 | 1.00 / 1.00 |
+| Satiated approach | 1.00 | 1.00 | **0.00** |
+| Transfer far (20×20, double hazards) | **0.48** | **0.48** | — |
+
+Conclusion: **scaling is not free**.
+
+1. Density matching helps (0.05 → 0.25) but is not enough to reach the
+   0.80 target.
+2. **Training/eval gap**: the training policy peaks at 0.66 while greedy
+   argmax only reaches 0.25 — the deterministic policy degenerates in a
+   larger world; exploration itself participates in survival.
+3. **Satiety modulation vanished after scale-up** (0.00 on 12×12 → 1.00
+   on 16×16), the most important negative result of this round:
+   homeostatic modulation is more fragile than search ability.
+4. **Search shows stable partial transfer** (far=0.48, identical across
+   two independent trainings, and in the unfamiliar 20×20 world with
+   double hazards) — the first transfer evidence for "world-grounded
+   judgment", though incomplete.
+
+Stage-A verdict: **paradigm validated** (the 12×12 six-group controls),
+**scale-up is an open problem** (the 0.80 target was not met; recorded
+as next-round work). This is itself an honest scientific conclusion:
+capability does not grow for free with scale — just like in the real
+world.
+
+Next-round directions: longer training + a stochastic-policy evaluation
+control (train/eval gap); longer curriculum plateaus (linger at medium
+density); model capacity (d_model 192+); a dedicated ablation of satiety
+modulation (is it 16×16's fault or the visit-trace channel's?).
+
 ## Environment / Tooling Notes
 
 - `python -m homeo_rl.compare` — aggregates `runs/*/eval_report.log` into
