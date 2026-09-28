@@ -1,0 +1,38 @@
+[
+  {
+    "run": "curriculum",
+    "survival": 0.5,
+    "final_energy": 0.2584999999999994,
+    "final_integrity": 0.8676000000000001,
+    "near_visible": 1.0,
+    "far_search": 1.0,
+    "far_random": 0.1,
+    "approach_mean": 0.75,
+    "satiated_approach": 0.0,
+    "hazard_entry": 0.0
+  },
+  {
+    "run": "explore",
+    "survival": 0.0,
+    "final_energy": 0.0,
+    "final_integrity": 0.9978999999999999,
+    "near_visible": 0.68,
+    "far_search": 0.0,
+    "far_random": 0.1,
+    "approach_mean": 0.5,
+    "satiated_approach": 1.0,
+    "hazard_entry": 0.0
+  },
+  {
+    "run": "coma",
+    "survival": 1.0,
+    "final_energy": 0.1202500000000001,
+    "final_integrity": 1.0,
+    "near_visible": 0.74,
+    "far_search": 0.48,
+    "far_random": 0.08,
+    "approach_mean": 0.75,
+    "satiated_approach": 1.0,
+    "hazard_entry": 0.0
+  }
+]

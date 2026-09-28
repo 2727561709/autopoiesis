@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -49,7 +50,7 @@ def load_model(ckpt_path: Path, device: str = "cpu") -> tuple[HomeoActorCritic, 
     Load a checkpoint; returns (model, env config from training)."""
     ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
     env_cfg = EnvConfig(**ckpt["env_cfg"])
-    model = HomeoActorCritic(view=env_cfg.view).to(device)
+    model = HomeoActorCritic(view=env_cfg.view, in_ch=env_cfg.n_channels).to(device)
     model.load_state_dict(ckpt["model"])
     model.eval()
     return model, env_cfg
@@ -247,6 +248,13 @@ def main() -> None:
     ap.add_argument("--ckpt", type=str, default="runs/exp-a/checkpoint.pt")
     ap.add_argument("--episodes", type=int, default=20)
     ap.add_argument("--trials", type=int, default=50)
+    ap.add_argument("--out", type=str, default=None,
+                    help="报告写入目录（默认：checkpoint 同目录）/ directory "
+                         "to write eval_report.log (default: next to the checkpoint)")
+    ap.add_argument("--transfer", action="store_true",
+                    help="追加迁移探针（更大网格 + 更密危险：只在训练环境里"
+                         "灵光的不叫判断，叫拟合）/ append transfer probes "
+                         "(larger grid + denser hazards)")
     args = ap.parse_args()
 
     ckpt_path = Path(args.ckpt)
@@ -260,7 +268,31 @@ def main() -> None:
         },
         "direction_modulation": direction_probe(model, env_cfg),
     }
+    if args.transfer:
+        # 迁移探针：改变世界（更大的网格、更密的危险、重掷食物数），
+        # 看内稳态判断是否仍成立。视野与通道数保持不变（属于身体，不属于世界）。
+        # Transfer probe: change the world (bigger grid, denser hazards,
+        # re-rolled food count) and check whether homeostatic judgment
+        # still holds. View size and channels stay fixed — they belong
+        # to the body, not the world.
+        t_cfg = replace(env_cfg,
+                        grid_size=env_cfg.grid_size + 4,
+                        n_hazard=env_cfg.n_hazard * 2,
+                        n_food=max(2, env_cfg.n_food - 2))
+        report["transfer"] = {
+            "env": {"grid_size": t_cfg.grid_size,
+                    "n_hazard": t_cfg.n_hazard, "n_food": t_cfg.n_food},
+            "survival": survival_probe(model, t_cfg, args.episodes),
+            "far_search": foraging_probe(model, t_cfg, args.trials)["far_search"],
+        }
     print(json.dumps(report, indent=2, ensure_ascii=False))
+    if args.out:
+        out_dir = Path(args.out)
+    else:
+        out_dir = ckpt_path.parent
+    (out_dir / "eval_report.log").write_text(
+        json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
+    print(f"saved: {out_dir / 'eval_report.log'}")
 
 
 if __name__ == "__main__":

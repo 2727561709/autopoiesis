@@ -12,19 +12,27 @@ import json
 from pathlib import Path
 from typing import Dict, List
 
-_DEFAULT_RUNS = ("base", "scarce", "curriculum", "explore", "abl-wm")
+_DEFAULT_RUNS = ("base", "scarce", "curriculum", "explore", "abl-wm", "coma")
 
 
 def _load(run: str, runs_root: Path) -> Dict | None:
     """读取单组评测报告，不存在或损坏时返回 None。
-    Load one run's eval report; None if missing or malformed."""
+    Load one run's eval report; None if missing or malformed.
+
+    兼容 UTF-8 与 UTF-16（PowerShell 重定向默认 UTF-16）。
+    Accepts both UTF-8 and UTF-16 (PowerShell redirection defaults
+    to UTF-16).
+    """
     log = runs_root / run / "eval_report.log"
     if not log.exists():
         return None
-    try:
-        return json.loads(log.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return None
+    raw = log.read_bytes()
+    for enc in ("utf-8-sig", "utf-16"):
+        try:
+            return json.loads(raw.decode(enc))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            continue
+    return None
 
 
 def summarize(run: str, rep: Dict) -> Dict:

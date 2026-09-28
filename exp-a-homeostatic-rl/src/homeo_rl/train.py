@@ -135,8 +135,9 @@ def train(ppo_cfg: PPOConfig,
         EnvConfig(**{**asdict(env_cfg), "seed": cfg.seed * 1000 + i}))
         for i in range(cfg.num_envs)]
 
-    model = HomeoActorCritic(view=env_cfg.view, d_model=cfg.d_model,
-                             nhead=cfg.nhead, n_layers=cfg.n_layers,
+    model = HomeoActorCritic(view=env_cfg.view, in_ch=env_cfg.n_channels,
+                             d_model=cfg.d_model, nhead=cfg.nhead,
+                             n_layers=cfg.n_layers,
                              ff_dim=cfg.ff_dim).to(device)
     opt = torch.optim.Adam(model.parameters(), lr=cfg.lr)
 
@@ -331,6 +332,12 @@ def main() -> None:
     ap.add_argument("--entropy-coef", type=float, default=0.01)
     ap.add_argument("--n-food", type=int, default=8)
     ap.add_argument("--n-hazard", type=int, default=6)
+    ap.add_argument("--grid-size", type=int, default=12,
+                    help="网格边长（放大实验用 16）/ grid side length "
+                         "(use 16 for the scale-up experiment)")
+    ap.add_argument("--visit-trace", action="store_true",
+                    help="开启访问痕迹记忆（第 5 观察通道）/ enable visit-trace "
+                         "memory (5th observation channel)")
     ap.add_argument("--food-anneal", action="store_true",
                     help="课程学习：食物密度从 --food-start 线性退火到 --food-end / "
                          "curriculum: anneal food density from --food-start to --food-end")
@@ -354,6 +361,7 @@ def main() -> None:
                     food_end=args.food_end,
                     seed=args.seed, d_model=args.d_model, n_layers=args.n_layers)
     env_cfg = EnvConfig(n_food=args.n_food, n_hazard=args.n_hazard,
+                        grid_size=args.grid_size, visit_trace=args.visit_trace,
                         coma_mode=args.coma)
     path = train(cfg, env_cfg=env_cfg, out_dir=Path(args.out), device=args.device)
     print(f"metrics: {path}")

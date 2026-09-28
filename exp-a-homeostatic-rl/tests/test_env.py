@@ -180,3 +180,63 @@ class TestComaMode:
             _, r, done, info = e.step(4)
             total += r
         assert total < 0.0
+
+
+class TestVisitTrace:
+    """访问痕迹记忆：第 5 观察通道与痕迹动力学。"""
+
+    def test_channel_count(self):
+        """开启后应为 5 通道，默认仍为 4。"""
+        assert EnvConfig().n_channels == 4
+        assert EnvConfig(visit_trace=True).n_channels == 5
+
+    def test_obs_shape_with_trace(self):
+        e = make_env(visit_trace=True)
+        obs = e.reset()
+        assert obs["vision"].shape == (7, 7, 5)
+
+    def test_trace_accumulates_at_visited_cell(self):
+        """走过并返回的格子应有痕迹，未到过的格子痕迹为 0。"""
+        e = make_env(visit_trace=True)
+        e.reset(seed=7)
+        r, c = e.agent
+        e.step(3)  # 向右 / move right
+        e.step(2)  # 回到起点 / move back
+        v = e.observation()["vision"]
+        off = 3
+        assert v[off, off, 4] > 0.0           # 起点被访问过 / start visited
+        assert v[off, off + 1, 4] > 0.0       # 右邻格被访问过 / right cell visited
+        # 走过的格子在智能体左边（相对视野），痕迹通道非零
+        # visited cells appear around the agent in the ego-centric view
+
+    def test_trace_decays_over_time(self):
+        """痕迹随时间衰减：静止不动久等后，远处格子的痕迹趋近 0。"""
+        e = make_env(visit_trace=True, max_steps=10_000)
+        e.reset(seed=11)
+        e.step(3)  # 访问右邻格 / visit the right cell
+        target = e.agent
+        # 起点在左侧两格 / start is two cells to the left
+        visited = (target[0], target[1] - 1)
+        for _ in range(2000):
+            e.step(4)  # 原地休息 / rest in place
+        assert e.visits[visited] < 0.05 * e.cfg.visit_gain
+
+    def test_trace_channel_normalized(self):
+        """通道值应被截断在 [0, 1]。"""
+        e = make_env(visit_trace=True, max_steps=10_000)
+        e.reset(seed=13)
+        for _ in range(300):
+            e.step(4)  # 反复踩同一格 / repeatedly visit the same cell
+        v = e.observation()["vision"]
+        assert v[..., 4].max() <= 1.0
+        assert v[3, 3, 4] == 1.0  # 当前格必为满痕迹 / current cell is saturated
+
+    def test_reset_clears_trace(self):
+        e = make_env(visit_trace=True)
+        e.reset(seed=17)
+        for _ in range(50):
+            e.step(4)
+        assert e.visits.sum() > 0.0
+        e.reset()
+        assert e.visits.sum() == 0.0
+

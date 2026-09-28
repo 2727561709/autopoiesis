@@ -66,6 +66,21 @@ class EnvConfig:
     coma_duration: int = 50    # 昏迷步数 / coma duration in steps
     coma_regen: float = 0.004  # 昏迷中每步能量回升（50 步共 +0.2）/ energy regenerated per coma step (+0.2 over 50 steps)
     coma_penalty: float = -1.5  # 陷入昏迷的一次性惩罚 / one-time penalty for falling into a coma
+    # 访问痕迹记忆：智能体到过的格子留下随时间衰减的痕迹，作为第 5 个
+    # 观察通道（去过 = 短期记忆，用于视野外搜索时避免重复扫同一区域）。
+    # Visit-trace memory: cells the agent has visited leave a decaying
+    # trace, exposed as a 5th observation channel (a short-term memory
+    # used to avoid re-scanning the same area during far search).
+    visit_trace: bool = False
+    visit_gain: float = 1.0    # 每次到访累加的痕迹量 / trace added per visit
+    visit_decay: float = 0.995  # 每步全局衰减 / per-step global decay
+    visit_cap: float = 2.0      # 通道归一化上限 / channel normalization cap
+
+    @property
+    def n_channels(self) -> int:
+        """观察通道数（访问痕迹开启时为 5，否则 4）。
+        Number of observation channels (5 with visit trace, else 4)."""
+        return 5 if self.visit_trace else 4
 
 
 class HomeostaticGridWorld:
@@ -102,6 +117,7 @@ class HomeostaticGridWorld:
         self.energy = float(self.cfg.init_energy)
         self.integrity = float(self.cfg.init_integrity)
         self.coma_steps_left = 0
+        self.visits = np.zeros((self.n, self.n), dtype=np.float32)
         self._place_objects()
         self.last_obs = self._observation()
         return self.last_obs
@@ -187,6 +203,14 @@ class HomeostaticGridWorld:
             self.coma_steps_left = cfg.coma_duration
             entering_coma = True
         died = (self.energy <= 0.0 or self.integrity <= 0.0) and not entering_coma
+
+        # 访问痕迹：全局衰减 + 当前格累加（昏迷中也累加，时间仍在流逝）
+        # Visit trace: global decay + accumulate at the agent's cell
+        # (also during a coma — time still passes).
+        if cfg.visit_trace:
+            self.visits *= cfg.visit_decay
+            self.visits[self.agent[0], self.agent[1]] += cfg.visit_gain
+
         self.t += 1
         done = died or self.t >= cfg.max_steps
 
@@ -217,12 +241,13 @@ class HomeostaticGridWorld:
         return self._observation()
 
     def _observation(self) -> Dict[str, np.ndarray]:
-        """自我中心视野：通道 0=边界 1=食物 2=危险 3=自身。
-        Ego-centric view: channel 0=boundary 1=food 2=hazard 3=self."""
+        """自我中心视野：通道 0=边界 1=食物 2=危险 3=自身（4=访问痕迹，可选）。
+        Ego-centric view: channel 0=boundary 1=food 2=hazard 3=self
+        (4=visit trace, optional)."""
         k = self.cfg.view
         off = k // 2
         r, c = self.agent
-        v = np.zeros((k, k, 4), dtype=np.float32)
+        v = np.zeros((k, k, self.cfg.n_channels), dtype=np.float32)
         for dr in range(-off, off + 1):
             for dc in range(-off, off + 1):
                 rr, cc = r + dr, c + dc
@@ -233,6 +258,11 @@ class HomeostaticGridWorld:
                         v[dr + off, dc + off, 1] = 1.0
                     if (rr, cc) in self.hazards:
                         v[dr + off, dc + off, 2] = 1.0
+                    if self.cfg.visit_trace:
+                        # 归一化痕迹：0=从未到访，1=反复到访 / normalized
+                        # trace: 0=never visited, 1=visited repeatedly
+                        v[dr + off, dc + off, 4] = min(
+                            self.visits[rr, cc] / self.cfg.visit_cap, 1.0)
         v[off, off, 3] = 1.0  # 自身 / self
         intero = np.array([self.energy, self.integrity], dtype=np.float32)
         return {"vision": v, "intero": intero}
