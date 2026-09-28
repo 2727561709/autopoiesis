@@ -84,13 +84,22 @@ The positioning of this repository has been upgraded: the cognitive modules
 **evaluation probes and curriculum generators for a new-species large model**.
 The core paradigm has three stages:
 
-- **Stage A (in progress)** — `exp-a-homeostatic-rl`: train a small Transformer
-  from scratch where the *only* reward is homeostatic deficit reduction
-  (the M12 idea) + prediction-error intrinsic reward (world model). This
-  validates whether "vitality" emerges without any artificial task reward.
-  **Requires torch; run with `py -3.12`.**
-- **Stage B (planned)**: inject homeostatic + world-model objectives into an
-  open-source foundation model via post-training.
+- **Stage A (✅ done, 2026-09)** — `exp-a-homeostatic-rl`: a small Transformer
+  trained from scratch where the *only* reward is homeostatic deficit
+  reduction (the M12 idea) + prediction-error intrinsic reward (world model).
+  **Paradigm validated** by a six-group controlled comparison under fair
+  probes: scarcity pressure is a necessary condition for search (far 1.00 vs
+  random 0.10); curriculum learning improves search speed (14.8 vs 25.0
+  steps) and survival (0.50 vs 0.30); curiosity at ×5 drowns the survival
+  drive; removing the existential threat (coma mode) destroys hunger
+  modulation; ablating the world model collapses the policy. The 16×16
+  scale-up did NOT reach its 0.80 survival target (best 0.25) — recorded
+  honestly as an open problem, though search ability showed stable partial
+  transfer to an unseen 20×20 world (far = 0.48 across two independent
+  trainings). Full log: [`exp-a-homeostatic-rl/README.md`](exp-a-homeostatic-rl/README.md).
+- **Stage B (▶ next)**: inject homeostatic + world-model objectives into an
+  open-source foundation model (Qwen-0.5B + QLoRA) via post-training —
+  the actual "new-species large model".
 - **Stage C (planned)**: online lifelong learning; training and deployment
   become one.
 
@@ -103,6 +112,15 @@ py -3.12 -m homeo_rl.evaluate --ckpt runs/base/checkpoint.pt
 ```
 
 ## Current Progress
+
+**Project stage: Stage A closed (2026-09-29) → Stage B starting.**
+
+| Track | Status |
+|---|---|
+| Stage A: paradigm validation (exp-a) | ✅ **Done** — six-group controls, fair probes, honest correction, scale-up recorded as open problem |
+| Stage B: inject objectives into Qwen-0.5B (QLoRA) | ▶ **Next up** |
+| Stage C: lifelong online learning | Planned |
+| Cognitive modules M01–M27 | 11/27 done (264 tests), remainder on demand as Stage-B probes |
 
 | Phase | Modules | Status |
 |---|---|---|
