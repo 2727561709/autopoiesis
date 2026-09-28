@@ -149,43 +149,58 @@ only difference: food density annealed linearly 8→2.
 is closed. Known flaw: a systematic detour bias when food sits at the
 view edge (3 cells).
 
+(Note: the scarce group's far 0.00 in this table came from the old unfair
+probe — a 20-step budget cannot cover a 4-cell round trip; under the fair
+probe the scarce group also reaches 1.00 — see the honest correction in
+the six-group summary below.)
+
 Explore group mid-run signal (update 200/500): survival 0.0 — the
 intrinsic-reward weight 0.1 was too strong; the curiosity signal drowned
 the homeostatic signal. A valuable negative result in itself.
 
-## Round 2 Summary: Six-Group Controls (2026-09-24)
+## Round 2 Summary: Six-Group Controls (completed 2026-09-29)
 
-| Probe | Curriculum | Explore | Coma | Ablation (no WM) | Random baseline |
-|---|---|---|---|---|---|
-| Survival | 0.50 | **0.00** | 1.00* | collapsed** | — |
-| Pursuit near_visible | **1.00** (4.4 steps) | 0.68 | 0.74 | TBA | 0.26 |
-| Search far_search | **1.00** (14.8 steps) | 0.00 | 0.48 | TBA | 0.08–0.10 |
-| Satiated approach (should ≈0) | **0.00** | 1.00 | 1.00 | TBA | — |
-| Hazard entry (should =0) | **0.00** | 0.00 | 0.00 | TBA | — |
+Full six-group comparison under the fair probes (near/far split,
+sufficient energy budget):
+
+| Probe | Abundant | Scarce | Curriculum | Explore | Coma | Ablation (no WM) | Random baseline |
+|---|---|---|---|---|---|---|---|
+| Survival | 0.45 | 0.30 | **0.50** | 0.00 | 1.00* | 0.00 | — |
+| Pursuit near_visible | 1.00 | 1.00 | **1.00** (3.9→4.4 steps) | 0.68 | 0.74 | 0.00 | 0.26 |
+| Search far_search | 0.26 | **1.00** (25.0 steps) | **1.00** (14.8 steps) | 0.00 | 0.48 | 0.00 | 0.08–0.10 |
+| Satiated approach (should ≈0) | 0.00 | 0.00 | **0.00** | 1.00 | 1.00 | 0.00 | — |
+| Hazard entry (should =0) | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | — |
 
 \* The coma group's survival 1.00 is guaranteed by mechanism (zero energy
 no longer kills) — it is not a capability.
-\** The ablation group's training entropy collapsed to ~6e-5: without the
-world-model auxiliary loss the policy becomes fully deterministic and
-learns no effective behavior during training. Full evaluation pending.
+\** The ablation group: final energy 0 / integrity 1.0 — a deterministic
+wait-for-death policy.
 
-Four conclusions:
+**Honest correction**: the old probe (20-step budget) reported the scarce
+group's far_search as 0 — the probe was unfair. Under the fair probe the
+scarce group searches too (1.00). The curriculum group's real advantage is
+**faster search** (14.8 vs 25.0 steps) and **higher survival** (0.50 vs
+0.30) — not "search vs no search".
 
-1. **Curriculum learning solves out-of-view search** (10× the random
-   baseline) without breaking hunger/satiety modulation (satiated
-   approach 0, hazard entry 0) — "design the developmental environment,
-   not the skills" holds.
-2. **Curiosity can drown the survival drive** (explore group, negative
-   result): with intrinsic reward ×5, hunger modulation vanished too
-   (satiated approach 1.00). The *balance* of drives matters more than
-   their strength.
-3. **Death pressure is a necessary condition for hunger modulation**
-   (coma group): without an existential threat, the satiated approach
-   rate rose to 1.00 — it stopped "caring" about eating. Cost structure
-   shapes motivation, not merely behavior.
-4. **The world-model auxiliary loss prevents policy collapse** (ablation
-   signal): the prediction pressure maintains policy entropy; without it
-   the policy degenerates into deterministic walking and starves.
+Five conclusions:
+
+1. **Scarcity pressure is a necessary condition for search**: the abundant
+   group's far 0.26 ≈ random baseline (patrol-cruising into food is enough
+   to live, so search is never learned); scarce/curriculum both hit 1.00.
+2. **Curriculum learning improves search efficiency and survival**
+   (corrected phrasing: not from-nothing-to-something): faster search +
+   higher survival + better integrity maintenance.
+3. **Curiosity can drown the survival drive** (explore group): intrinsic
+   reward ×5 → survival 0 and hunger modulation gone (satiated approach
+   1.00). The *balance* of drives matters more than their strength.
+4. **Death pressure is a necessary condition for hunger modulation**
+   (coma group): without an existential threat the satiated approach rate
+   rose to 1.00 — it stopped "caring" about eating. Cost structure shapes
+   motivation, not merely behavior.
+5. **The world-model auxiliary loss prevents policy collapse** (ablation
+   group): without the prediction pressure the policy went fully
+   deterministic (training entropy ~6e-5), degenerating into waiting for
+   death in place.
 
 ## Round 3: Scale-Up Experiment (in progress)
 

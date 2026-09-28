@@ -1,5 +1,29 @@
 [
   {
+    "run": "base",
+    "survival": 0.44999999999999996,
+    "final_energy": 0.3984999999999991,
+    "final_integrity": 0.7771,
+    "near_visible": 1.0,
+    "far_search": 0.26,
+    "far_random": 0.1,
+    "approach_mean": 0.5,
+    "satiated_approach": 0.0,
+    "hazard_entry": 0.0
+  },
+  {
+    "run": "scarce",
+    "survival": 0.30000000000000004,
+    "final_energy": 0.30549999999999816,
+    "final_integrity": 0.6043000000000002,
+    "near_visible": 1.0,
+    "far_search": 1.0,
+    "far_random": 0.1,
+    "approach_mean": 1.0,
+    "satiated_approach": 0.0,
+    "hazard_entry": 0.0
+  },
+  {
     "run": "curriculum",
     "survival": 0.5,
     "final_energy": 0.2584999999999994,
@@ -21,6 +45,18 @@
     "far_random": 0.1,
     "approach_mean": 0.5,
     "satiated_approach": 1.0,
+    "hazard_entry": 0.0
+  },
+  {
+    "run": "abl-wm",
+    "survival": 0.0,
+    "final_energy": 0.0,
+    "final_integrity": 1.0,
+    "near_visible": 0.0,
+    "far_search": 0.0,
+    "far_random": 0.1,
+    "approach_mean": 0.0,
+    "satiated_approach": 0.0,
     "hazard_entry": 0.0
   },
   {

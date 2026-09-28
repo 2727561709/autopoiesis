@@ -17,3 +17,7 @@ runs/**/*.log
 .DS_Store
 Thumbs.db
 test_out.txt
+
+# 容器临时文件 / container temp files
+wrapup*.sh
+pip_*.log
