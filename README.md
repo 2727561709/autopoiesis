@@ -97,9 +97,13 @@ The core paradigm has three stages:
   honestly as an open problem, though search ability showed stable partial
   transfer to an unseen 20×20 world (far = 0.48 across two independent
   trainings). Full log: [`exp-a-homeostatic-rl/README.md`](exp-a-homeostatic-rl/README.md).
-- **Stage B (▶ next)**: inject homeostatic + world-model objectives into an
-  open-source foundation model (Qwen-0.5B + QLoRA) via post-training —
-  the actual "new-species large model".
+- **Stage B (▶ in progress, 2026-10)**: inject homeostatic + world-model
+  objectives into an open-source foundation model (Qwen-0.5B + QLoRA) via
+  post-training — the actual "new-species large model". Current status:
+  teacher dataset generated (40 episodes / 13,729 examples), LoRA SFT
+  training, behavioral probes (agreement / survival / interoceptive
+  modulation) next. See
+  [`exp-b-qwen-homeostatic`](exp-b-qwen-homeostatic/README.md).
 - **Stage C (planned)**: online lifelong learning; training and deployment
   become one.
 
@@ -113,12 +117,12 @@ py -3.12 -m homeo_rl.evaluate --ckpt runs/base/checkpoint.pt
 
 ## Current Progress
 
-**Project stage: Stage A closed (2026-09-29) → Stage B starting.**
+**Project stage: Stage A closed (2026-09-29) → Stage B in progress (2026-10-01).**
 
 | Track | Status |
 |---|---|
 | Stage A: paradigm validation (exp-a) | ✅ **Done** — six-group controls, fair probes, honest correction, scale-up recorded as open problem |
-| Stage B: inject objectives into Qwen-0.5B (QLoRA) | ▶ **Next up** |
+| Stage B: inject objectives into Qwen-0.5B (QLoRA) | ▶ **In progress** — env ready, 13,729 teacher examples generated, LoRA SFT training, three probes next |
 | Stage C: lifelong online learning | Planned |
 | Cognitive modules M01–M27 | 11/27 done (264 tests), remainder on demand as Stage-B probes |
 

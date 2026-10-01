@@ -32,13 +32,22 @@ from .textenv import ACTION_WORDS, TextEnv, WORD_TO_ACTION, obs_messages
 NONE_ACTION = N_ACTIONS
 
 
-def load_student(ckpt_dir: Path, device: str = "cuda"):
-    """载入微调后的学生模型（LoRA 或合并后的完整模型）。
+def load_student(ckpt_dir: Path, device: str = "cuda",
+                 base_model: str = "Qwen/Qwen2.5-0.5B-Instruct"):
+    """载入微调后的学生模型（LoRA 适配器或合并后的完整模型）。
     Load the fine-tuned student (LoRA adapter or merged full model)."""
     from transformers import AutoModelForCausalLM, AutoTokenizer
     tok = AutoTokenizer.from_pretrained(str(ckpt_dir))
-    model = AutoModelForCausalLM.from_pretrained(
-        str(ckpt_dir), torch_dtype=torch.bfloat16, device_map=device)
+    if (ckpt_dir / "adapter_config.json").exists():
+        # LoRA 适配器：先加载底座，再挂适配器 / LoRA adapter: load
+        # the base model, then attach the adapter.
+        from peft import PeftModel
+        base = AutoModelForCausalLM.from_pretrained(
+            base_model, torch_dtype=torch.bfloat16, device_map=device)
+        model = PeftModel.from_pretrained(base, str(ckpt_dir))
+    else:
+        model = AutoModelForCausalLM.from_pretrained(
+            str(ckpt_dir), torch_dtype=torch.bfloat16, device_map=device)
     model.eval()
     return model, tok
 

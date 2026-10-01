@@ -38,8 +38,18 @@ Qwen2.5-0.5B-Instruct（学生）
 
 - `homeo_lm.textenv` —— 文本渲染的内稳态网格世界（复用 exp-a 环境）
 - `homeo_lm.gen_data` —— 教师轨迹 → SFT 数据集
-- `homeo_lm.sft` —— QLoRA 微调
+- `homeo_lm.sft` —— QLoRA 微调（快照 + `--resume` 断点续训）
 - `homeo_lm.probe` —— 行为探针（一致率 / 存活 / 内感受调制）
+
+## 进度（v1，2026-10-01）
+
+- [x] 环境：CUDA torch（RTX 3050 4GB），Qwen2.5-0.5B-Instruct 本地缓存
+- [x] 教师数据：40 局 / **13,729 条**（教师死亡率 0.325，平均局长 343.2）
+- [~] LoRA SFT：**训练中**（1 epoch，batch 2 × accum 16；bitsandbytes DLL 被
+      Smart App Control 拦截 WinError 4551 → 自动回退 bf16 LoRA；
+      每 100 优化步快照，支持断点续训）
+- [ ] 三探针：一致率 / 存活 / 内感受调制（SFT 后自动运行，
+      结果写入 `runs/sft-lora/probe_report.json`）
 
 ## 用法
 

@@ -46,8 +46,20 @@ injection.
 
 - `homeo_lm.textenv` — text-rendered homeostatic grid world (reuses the exp-a env)
 - `homeo_lm.gen_data` — teacher trajectories -> SFT dataset
-- `homeo_lm.sft` — QLoRA fine-tuning
+- `homeo_lm.sft` — QLoRA fine-tuning (snapshots + `--resume`)
 - `homeo_lm.probe` — behavioral probes (agreement / survival / modulation)
+
+## Status (v1, 2026-10-01)
+
+- [x] Environment: CUDA torch (RTX 3050 4GB), Qwen2.5-0.5B-Instruct cached locally
+- [x] Teacher data: 40 episodes / **13,729 examples** (teacher death rate 0.325,
+      mean episode length 343.2)
+- [~] LoRA SFT: **training** (1 epoch, batch 2 x accum 16; the bitsandbytes
+      DLL is blocked by Smart App Control, WinError 4551 -> automatic bf16
+      LoRA fallback; snapshot every 100 optimizer steps, resumable)
+- [ ] Three probes: agreement / survival / interoceptive modulation
+      (run automatically after SFT; results land in
+      `runs/sft-lora/probe_report.json`)
 
 ## Usage
 

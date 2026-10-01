@@ -13,6 +13,17 @@ build/
 **/runs/**/*.pt
 **/runs/*.log
 
+# 阶段 B 产物：数据集与模型产物不入库，probe_report.json 保留
+# （数据可由 gen_data 复现；safetensors/tokenizer 是训练输出）
+exp-b-qwen-homeostatic/data/
+exp-b-qwen-homeostatic/runs/**/*.safetensors
+exp-b-qwen-homeostatic/runs/**/tokenizer*
+exp-b-qwen-homeostatic/runs/**/chat_template*
+exp-b-qwen-homeostatic/runs/**/README.md
+exp-b-qwen-homeostatic/runs/**/adapter_config.json
+exp-b-qwen-homeostatic/runs/**/train_state.json
+exp-b-qwen-homeostatic/*.log
+
 # 工具与系统
 .codebuddy/
 .DS_Store
