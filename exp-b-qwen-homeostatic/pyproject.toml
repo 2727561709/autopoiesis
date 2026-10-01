@@ -1,0 +1,25 @@
+[project]
+name = "homeo-lm"
+version = "0.1.0"
+description = "Stage B: injecting homeostatic objectives into a language model (Qwen-0.5B + QLoRA)"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "numpy",
+    "torch",
+    "transformers>=4.45",
+    "peft>=0.13",
+    "accelerate>=0.34",
+    "datasets>=2.20",
+    "bitsandbytes>=0.43; platform_system != 'Windows' or sys_platform != 'darwin'",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
