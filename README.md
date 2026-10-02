@@ -99,10 +99,12 @@ The core paradigm has three stages:
   trainings). Full log: [`exp-a-homeostatic-rl/README.md`](exp-a-homeostatic-rl/README.md).
 - **Stage B (▶ in progress, 2026-10)**: inject homeostatic + world-model
   objectives into an open-source foundation model (Qwen-0.5B + QLoRA) via
-  post-training — the actual "new-species large model". Current status:
-  teacher dataset generated (40 episodes / 13,729 examples), LoRA SFT
-  training, behavioral probes (agreement / survival / interoceptive
-  modulation) next. See
+  post-training — the actual "new-species large model". v1 (40-episode
+  teacher dataset, 13,729 examples + 1-epoch LoRA SFT) has run all three
+  probes: **negative result** — agreement 0.485 (criterion 0.7), survival
+  0.00, interoceptive modulation 0.00; the policy collapsed to a single
+  action (format learning without policy binding). Recorded honestly;
+  v2 (200 episodes + per-action balancing) is next. See
   [`exp-b-qwen-homeostatic`](exp-b-qwen-homeostatic/README.md).
 - **Stage C (planned)**: online lifelong learning; training and deployment
   become one.
@@ -122,7 +124,7 @@ py -3.12 -m homeo_rl.evaluate --ckpt runs/base/checkpoint.pt
 | Track | Status |
 |---|---|
 | Stage A: paradigm validation (exp-a) | ✅ **Done** — six-group controls, fair probes, honest correction, scale-up recorded as open problem |
-| Stage B: inject objectives into Qwen-0.5B (QLoRA) | ▶ **In progress** — env ready, 13,729 teacher examples generated, LoRA SFT training, three probes next |
+| Stage B: inject objectives into Qwen-0.5B (QLoRA) | ▶ **In progress** — v1 negative result recorded honestly (agreement 0.49 / survival 0 / modulation 0; policy collapsed to a single action); v2 next |
 | Stage C: lifelong online learning | Planned |
 | Cognitive modules M01–M27 | 11/27 done (264 tests), remainder on demand as Stage-B probes |
 

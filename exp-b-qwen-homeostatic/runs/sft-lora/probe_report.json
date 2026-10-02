@@ -1,0 +1,20 @@
+{
+  "checkpoint": "runs/sft-lora",
+  "agreement": {
+    "steps": 200,
+    "agreement": 0.485,
+    "illegal_rate": 0.0
+  },
+  "survival": {
+    "episodes": 20,
+    "survival_rate": 0.0,
+    "mean_steps": 77.7,
+    "illegal_rate": 0.0
+  },
+  "modulation": {
+    "trials": 40,
+    "hungry_toward_food": 0.0,
+    "satiated_toward_food": 0.0,
+    "modulation_gap": 0.0
+  }
+}

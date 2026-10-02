@@ -49,17 +49,48 @@ injection.
 - `homeo_lm.sft` — QLoRA fine-tuning (snapshots + `--resume`)
 - `homeo_lm.probe` — behavioral probes (agreement / survival / modulation)
 
-## Status (v1, 2026-10-01)
+## Status (v1, 2026-10-01 -> 10-02)
 
 - [x] Environment: CUDA torch (RTX 3050 4GB), Qwen2.5-0.5B-Instruct cached locally
 - [x] Teacher data: 40 episodes / **13,729 examples** (teacher death rate 0.325,
       mean episode length 343.2)
-- [~] LoRA SFT: **training** (1 epoch, batch 2 x accum 16; the bitsandbytes
-      DLL is blocked by Smart App Control, WinError 4551 -> automatic bf16
-      LoRA fallback; snapshot every 100 optimizer steps, resumable)
-- [ ] Three probes: agreement / survival / interoceptive modulation
-      (run automatically after SFT; results land in
-      `runs/sft-lora/probe_report.json`)
+- [x] LoRA SFT: **done** (1 epoch, batch 2 x accum 16; the bitsandbytes DLL is
+      blocked by Smart App Control, WinError 4551 -> automatic bf16 LoRA
+      fallback; loss 0.65 -> 0.19)
+- [x] Three probes: **done** — see below (`runs/sft-lora/probe_report.json`)
+
+## Results (v1) — negative, recorded honestly
+
+| Probe | Result | Criterion | Verdict |
+|---|---|---|---|
+| agreement | **0.485** (chance ~0.2, illegal rate 0) | > 0.7 | ✗ |
+| survival | **0.00** (mean 77.7 steps/episode, illegal rate 0) | well above random | ✗ |
+| modulation_gap ★ | **0.00** (hungry/satiated both 0% toward food) | > 0.5 | ✗ |
+
+**Diagnosis**: greedy decoding outputs `down` in 100% of 60 constructed
+states (food 3 cells right, alternating hungry/satiated) — the policy
+collapsed to a single action. Yet the teacher's action distribution in the
+dataset is rest 50% / right 15% / left 14% / up 11% / down 10%: the model
+collapsed to a *minority* class, so 1 epoch achieved **format learning**
+(emit a legal action word) but not **policy binding** (observation ->
+action).
+
+**Signals still worth noting**: illegal-output rate 0 (the format was
+learned); agreement 0.485 is well above chance 0.2 (some policy signal
+exists, but not enough to survive).
+
+## v2 Plan
+
+1. Scale data to 200 episodes (~70k examples); train 2-3 epochs
+2. Per-action stratified balancing (rest is 50% of the data — class
+   imbalance must be handled, e.g. downsampling rest)
+3. Monitor the per-action prediction distribution during training;
+   detect collapse and stop early
+4. Wider LoRA coverage (add MLP layers) or larger r
+5. Read-out logic unchanged: if v2 reaches agreement + survival while
+   modulation_gap stays 0, that is precisely the predicted watershed
+   between "fitting a policy" and "embodying homeostatic judgment" —
+   escalate to DPO (homeostatic preference pairs)
 
 ## Usage
 

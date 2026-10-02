@@ -53,9 +53,13 @@ def load_student(ckpt_dir: Path, device: str = "cuda",
 
 
 def _teacher_greedy(model, env, prev_a: int, device: str) -> int:
-    v = torch.from_numpy(env.last_obs["vision"]).unsqueeze(0).to(device)
-    i = torch.from_numpy(env.last_obs["intero"]).unsqueeze(0).to(device)
-    pa = torch.tensor([prev_a], dtype=torch.long, device=device)
+    # 教师加载在 CPU 上（小模型），输入须跟随教师自身的设备
+    # The teacher lives on CPU (tiny model); inputs must follow the
+    # model's own device, not the student's.
+    tdev = next(model.parameters()).device
+    v = torch.from_numpy(env.last_obs["vision"]).unsqueeze(0).to(tdev)
+    i = torch.from_numpy(env.last_obs["intero"]).unsqueeze(0).to(tdev)
+    pa = torch.tensor([prev_a], dtype=torch.long, device=tdev)
     a, _, _ = model.act(v, i, pa, deterministic=True)
     return int(a.item())
 
