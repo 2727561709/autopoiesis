@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
+from collections import Counter
 from pathlib import Path
 from typing import List
 
@@ -22,16 +24,42 @@ from torch.utils.data import DataLoader, Dataset
 DEFAULT_MODEL = "Qwen/Qwen2.5-0.5B-Instruct"
 
 
+def _balance_rows(rows: List[dict]) -> List[dict]:
+    """动作分层平衡：多数类下采样到第二大类的数量。
+    Per-action balancing: downsample the majority class to the size of the
+    second-largest class (v1 教师数据中 rest 占 ~50%，是主要类不平衡源)."""
+    by_action: dict = {}
+    for r in rows:
+        a = r["messages"][2]["content"].strip().lower()
+        by_action.setdefault(a, []).append(r)
+    counts = sorted((len(v) for v in by_action.values()), reverse=True)
+    if len(counts) < 2:
+        return rows
+    cap = counts[1]  # 第二大类 / second-largest class
+    rng = random.Random(0)
+    kept: List[dict] = []
+    for a, rs in by_action.items():
+        if len(rs) > cap:
+            rs = rng.sample(rs, cap)
+        kept.extend(rs)
+    dist = Counter(r["messages"][2]["content"].strip().lower() for r in kept)
+    print(f"balanced: {dict(dist)} (cap={cap})", flush=True)
+    return kept
+
+
 class SFTData(Dataset):
     """chat 模板化的 SFT 数据，只对 assistant 段计算损失。
     Chat-templated SFT data; the loss is computed on the assistant
     segment only."""
 
-    def __init__(self, path: Path, tokenizer, max_len: int = 512) -> None:
+    def __init__(self, path: Path, tokenizer, max_len: int = 512,
+                 balance: bool = False) -> None:
         self.rows: List[dict] = []
         with open(path, encoding="utf-8") as f:
             for line in f:
                 self.rows.append(json.loads(line))
+        if balance:
+            self.rows = _balance_rows(self.rows)
         self.tok = tokenizer
         self.max_len = max_len
 
@@ -62,11 +90,40 @@ def _collate(batch, pad_id: int):
     return (torch.tensor(input_ids), torch.tensor(labels), torch.tensor(attn))
 
 
+def collapse_check(model, tok, rows: List[dict], device: str,
+                  n: int = 64, seed: int = 7) -> tuple:
+    """坍缩监控：固定样本上的 teacher-forced 下一词 argmax 分布。
+    Collapse monitoring: the argmax next-word distribution over a fixed
+    prompt sample (v1 的教训——训练完才发现策略坍缩为单一动作)."""
+    rng = random.Random(seed)
+    sample = rng.sample(rows, min(n, len(rows)))
+    counts: Counter = Counter()
+    was_training = model.training
+    model.eval()
+    with torch.no_grad():
+        for row in sample:
+            prompt = tok.apply_chat_template(
+                row["messages"][:2], tokenize=False,
+                add_generation_prompt=True)
+            enc = tok(prompt, return_tensors="pt",
+                      add_special_tokens=False).to(device)
+            out = model(**enc)
+            nxt = int(out.logits[0, -1].argmax())
+            word = tok.decode([nxt]).strip().lower().strip(".")
+            counts[word] += 1
+    if was_training:
+        model.train()
+    total = sum(counts.values())
+    dist = {k: round(v / total, 3) for k, v in counts.items()}
+    top_share = counts.most_common(1)[0][1] / total
+    return dist, top_share
+
+
 def train(data_path: Path, out_dir: Path, model_name: str = DEFAULT_MODEL,
           epochs: int = 2, batch_size: int = 4, accum: int = 8,
           lr: float = 1e-4, max_len: int = 512, merge: bool = False,
           device: str = "cuda", resume: bool = False,
-          snapshot_every: int = 100) -> Path:
+          snapshot_every: int = 100, balance: bool = False) -> Path:
     from peft import LoraConfig, get_peft_model
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -129,7 +186,7 @@ def train(data_path: Path, out_dir: Path, model_name: str = DEFAULT_MODEL,
         model.enable_input_require_grads()
         model.gradient_checkpointing_enable()
 
-    ds = SFTData(data_path, tok, max_len)
+    ds = SFTData(data_path, tok, max_len, balance=balance)
     # 固定种子的 shuffle：保证续训时 batch 顺序与首跑一致
     # Seeded shuffle: batch order is reproducible across resumed runs.
     g = torch.Generator()
@@ -168,6 +225,10 @@ def train(data_path: Path, out_dir: Path, model_name: str = DEFAULT_MODEL,
                     state_path.write_text(
                         json.dumps({"epoch": epoch, "batch_idx": i + 1,
                                     "step": step}), encoding="utf-8")
+                    dist, top = collapse_check(model, tok, ds.rows, device)
+                    flag = " <<< COLLAPSING" if top > 0.9 else ""
+                    print(f"collapse-check step {step}: {dist} "
+                          f"top={top:.2f}{flag}", flush=True)
         skip_batches = 0  # 恢复的 epoch 结束后不再跳过 / done skipping
     model.eval()
 
@@ -207,6 +268,9 @@ def main() -> None:
                     help="从上次快照续训 / resume from the last snapshot")
     ap.add_argument("--snapshot-every", type=int, default=100,
                     help="每 N 个优化步保存一次快照 / snapshot every N steps")
+    ap.add_argument("--balance", action="store_true",
+                    help="动作分层平衡（多数类下采样到第二大类）/ per-action "
+                         "balancing (majority downsampled to 2nd-largest)")
     args = ap.parse_args()
     device = "cuda" if torch.cuda.is_available() else "cpu"
     if device == "cpu":
@@ -215,7 +279,7 @@ def main() -> None:
     train(Path(args.data), Path(args.out), args.model, args.epochs,
           args.batch_size, args.accum, args.lr, merge=args.merge,
           device=device, resume=args.resume,
-          snapshot_every=args.snapshot_every)
+          snapshot_every=args.snapshot_every, balance=args.balance)
 
 
 if __name__ == "__main__":
