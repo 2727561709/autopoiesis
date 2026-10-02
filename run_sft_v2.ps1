@@ -12,9 +12,13 @@ $log = "D:\autopoiesis\autopoiesis\exp-b-qwen-homeostatic\sft_v2_run.log"
 Push-Location D:\autopoiesis\autopoiesis\exp-b-qwen-homeostatic
 
 "== v2 1/3 生成教师数据（200 局，seed 7）==" | Out-File $log -Encoding utf8
-py -3.12 -m homeo_lm.gen_data --ckpt ..\exp-a-homeostatic-rl\runs\curriculum\checkpoint.pt --episodes 200 --seed 7 --out data/sft_v2.jsonl *>> $log
-"gen exit: $LASTEXITCODE" | Out-File $log -Append -Encoding utf8
-if ($LASTEXITCODE -ne 0) { Pop-Location; throw "gen_data failed" }
+if (Test-Path "data\sft_v2.jsonl") {
+    "data exists, skip gen" | Out-File $log -Append -Encoding utf8
+} else {
+    py -3.12 -m homeo_lm.gen_data --ckpt ..\exp-a-homeostatic-rl\runs\curriculum\checkpoint.pt --episodes 200 --seed 7 --out data/sft_v2.jsonl *>> $log
+    "gen exit: $LASTEXITCODE" | Out-File $log -Append -Encoding utf8
+    if ($LASTEXITCODE -ne 0) { Pop-Location; throw "gen_data failed" }
+}
 
 "== v2 2/3 平衡 SFT（2 epochs，坍缩监控）==" | Out-File $log -Append -Encoding utf8
 py -3.12 -m homeo_lm.sft --data data/sft_v2.jsonl --epochs 2 --batch-size 2 --accum 16 --balance --resume --out runs/sft-lora-v2 *>> $log
