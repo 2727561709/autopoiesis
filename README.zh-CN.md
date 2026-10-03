@@ -101,14 +101,14 @@ py -3.12 -m homeo_rl.evaluate --ckpt runs/base/checkpoint.pt
 | 阶段 A：范式验证（exp-a） | ✅ **完成** —— 六组对照、公平探针、诚实修正，放大记录为公开难题 |
 | 阶段 B：注入 Qwen-0.5B（QLoRA） | ▶ **进行中** —— v1 负结果已诚实记录（一致率 0.49 / 存活 0 / 调制 0，策略坍缩为单一动作）；v2 待跑 |
 | 阶段 C：终身在线学习 | 规划中 |
-| 认知模块 M01–M27 | 11/27 完成（264 tests），其余按阶段 B 需要开发 |
+| 认知模块 M01–M27 | 12/27 完成（286 tests），其余按阶段 B 需要开发 |
 
 | 阶段 | 模块 | 状态 |
 |---|---|---|
 | 1 | M01 cog-config, M02 cog-logger, M03 cog-checkpoint | **已完成** |
 | 2 | M04 cog-perception, M05 cog-policy, M12 cog-drives, M25 cog-body, M26 cog-world | **已完成（172 tests 全部通过）** |
 | 3 | M06 cog-working-memory, M14 cog-workspace, M15 cog-goal-manager | **已完成（264 tests 全部通过）** |
-| 4 | M10 世界模型, M16 规划器 | 待开发 |
+| 4 | M10 cog-world-model, M16 规划器 | **M10 已完成（22 tests）；M16 待开发** |
 | 5 | M07/M08/M09 三种记忆 | 待开发 |
 | 6 | M13 情绪, M17 元认知, M18 自我叙事 | 待开发 |
 | 7 | M19 扎根, M20 内在言语, M21 社会言语 | 待开发 |
@@ -155,6 +155,7 @@ cog-xxx/
 | cog-working-memory | 0.1.0 | `write(z)` / `read(query) -> z`（FIFO + 余弦注意力） | 24 |
 | cog-workspace | 0.1.0 | `forward(perc, mem, emo, goal) -> (broadcast, weights)` | 20 |
 | cog-goal-manager | 0.1.0 | `add(goal)` / `update_from_drives()` / `current()`（零依赖） | 28 |
+| cog-world-model | 0.1.0 | `forward(z, a) -> (z', r, done)` / `imagine(z, policy, H)`（潜空间转移 + 预测误差好奇接口） | 22 |
 
 ## 典型数据流（阶段 3 已可跑通）
 
@@ -174,8 +175,8 @@ World.step(id, action) -> effects -> DriveSystem.step(effects) -> deficit
 
 ## 下一步（阶段 4，预计 3 周）
 
-1. M10 cog-world-model：`forward(z, a) -> (z', r, d)` / `imagine(z, policy, H)`
-   （潜空间转移模型 + rollout，NumPy 微型网络后端）。
+1. ~~M10 cog-world-model：`forward(z, a) -> (z', r, d)` / `imagine(z, policy, H)`
+   （潜空间转移模型 + rollout，NumPy 微型网络后端）。~~ **已完成（2026-10-04，22 tests）**
 2. M16 cog-planner：`plan(z, goal) -> actions`（基于 M10 的 CEM/MPC 规划）。
 
 ## 下一步（阶段 5，预告）

@@ -126,14 +126,14 @@ py -3.12 -m homeo_rl.evaluate --ckpt runs/base/checkpoint.pt
 | Stage A: paradigm validation (exp-a) | ✅ **Done** — six-group controls, fair probes, honest correction, scale-up recorded as open problem |
 | Stage B: inject objectives into Qwen-0.5B (QLoRA) | ▶ **In progress** — v1 negative result recorded honestly (agreement 0.49 / survival 0 / modulation 0; policy collapsed to a single action); v2 next |
 | Stage C: lifelong online learning | Planned |
-| Cognitive modules M01–M27 | 11/27 done (264 tests), remainder on demand as Stage-B probes |
+| Cognitive modules M01–M27 | 12/27 done (286 tests), remainder on demand as Stage-B probes |
 
 | Phase | Modules | Status |
 |---|---|---|
 | 1 | M01 cog-config, M02 cog-logger, M03 cog-checkpoint | **Done** |
 | 2 | M04 cog-perception, M05 cog-policy, M12 cog-drives, M25 cog-body, M26 cog-world | **Done (172 tests all passing)** |
 | 3 | M06 cog-working-memory, M14 cog-workspace, M15 cog-goal-manager | **Done (264 tests all passing)** |
-| 4 | M10 world model, M16 planner | To develop |
+| 4 | M10 world model, M16 planner | **M10 done (22 tests); M16 to develop** |
 | 5 | M07/M08/M09 three memory types | To develop |
 | 6 | M13 emotion, M17 metacognition, M18 self-narrative | To develop |
 | 7 | M19 grounding, M20 inner speech, M21 social speech | To develop |
@@ -182,6 +182,7 @@ cog-xxx/
 | cog-working-memory | 0.1.0 | `write(z)` / `read(query) -> z` (FIFO + cosine attention) | 24 |
 | cog-workspace | 0.1.0 | `forward(perc, mem, emo, goal) -> (broadcast, weights)` | 20 |
 | cog-goal-manager | 0.1.0 | `add(goal)` / `update_from_drives()` / `current()` (zero-dep) | 28 |
+| cog-world-model | 0.1.0 | `forward(z, a) -> (z', r, done)` / `imagine(z, policy, H)` (latent transition + prediction-error curiosity) | 22 |
 
 ## Typical Data Flow (Phase 3, working end-to-end)
 
@@ -201,8 +202,9 @@ World.step(id, action) -> effects -> DriveSystem.step(effects) -> deficit
 
 ## Next Steps (Phase 4, ~3 weeks)
 
-1. M10 cog-world-model: `forward(z, a) -> (z', r, d)` / `imagine(z, policy, H)`
-   (latent transition model + rollout, NumPy micro-network backend).
+1. ~~M10 cog-world-model: `forward(z, a) -> (z', r, d)` / `imagine(z, policy, H)`
+   (latent transition model + rollout, NumPy micro-network backend).~~
+   **Done (2026-10-04, 22 tests).**
 2. M16 cog-planner: `plan(z, goal) -> actions` (CEM/MPC planning on top of M10).
 
 ## Next Steps (Phase 5, preview)
