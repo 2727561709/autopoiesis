@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cog-planner"
+version = "0.1.0"
+description = "M16 规划器模块：基于 M10 世界模型的 CEM/MPC 想象规划"
+requires-python = ">=3.9"
+dependencies = ["numpy>=1.24"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
