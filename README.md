@@ -126,7 +126,7 @@ py -3.12 -m homeo_rl.evaluate --ckpt runs/base/checkpoint.pt
 | Stage A: paradigm validation (exp-a) | ✅ **Done** — six-group controls, fair probes, honest correction, scale-up recorded as open problem |
 | Stage B: inject objectives into Qwen-0.5B (QLoRA) | ▶ **In progress** — v1 negative result recorded honestly (agreement 0.49 / survival 0 / modulation 0; policy collapsed to a single action); v2 next |
 | Stage C: lifelong online learning | Planned |
-| Cognitive modules M01–M27 | 13/27 done (302 tests), remainder on demand as Stage-B probes |
+| Cognitive modules M01–M27 | 14/27 done (324 tests), remainder on demand as Stage-B probes |
 
 | Phase | Modules | Status |
 |---|---|---|
@@ -134,7 +134,7 @@ py -3.12 -m homeo_rl.evaluate --ckpt runs/base/checkpoint.pt
 | 2 | M04 cog-perception, M05 cog-policy, M12 cog-drives, M25 cog-body, M26 cog-world | **Done (172 tests all passing)** |
 | 3 | M06 cog-working-memory, M14 cog-workspace, M15 cog-goal-manager | **Done (264 tests all passing)** |
 | 4 | M10 world model, M16 planner | **Done (38 tests)** |
-| 5 | M07/M08/M09 three memory types | To develop |
+| 5 | M07/M08/M09 three memory types | **M07 done (22 tests); M08/M09 to develop** |
 | 6 | M13 emotion, M17 metacognition, M18 self-narrative | To develop |
 | 7 | M19 grounding, M20 inner speech, M21 social speech | To develop |
 | 8 | M11 causal graph, M22 ethics, M23 visualization | To develop |
@@ -184,6 +184,7 @@ cog-xxx/
 | cog-goal-manager | 0.1.0 | `add(goal)` / `update_from_drives()` / `current()` (zero-dep) | 28 |
 | cog-world-model | 0.1.0 | `forward(z, a) -> (z', r, done)` / `imagine(z, policy, H)` (latent transition + prediction-error curiosity) | 22 |
 | cog-planner | 0.1.0 | `plan(z, goal) -> actions` (CEM/MPC planning on the world model's imagination) | 16 |
+| cog-episodic-memory | 0.1.0 | `write(z, **meta)` / `read(query, k)` (long-term episodic store + cosine retrieval + replay) | 22 |
 
 ## Typical Data Flow (Phase 3, working end-to-end)
 
@@ -211,8 +212,9 @@ World.step(id, action) -> effects -> DriveSystem.step(effects) -> deficit
 
 ## Next Steps (Phase 5, preview)
 
-M07 episodic memory (similarity retrieval), M08 semantic memory (knowledge
-graph + spreading activation), M09 procedural memory (skill library).
+M07 episodic memory (similarity retrieval) — **done (2026-10-08, 22
+tests)**; M08 semantic memory (knowledge graph + spreading activation),
+M09 procedural memory (skill library).
 
 ---
 
