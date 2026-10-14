@@ -92,6 +92,44 @@ exists, but not enough to survive).
    between "fitting a policy" and "embodying homeostatic judgment" —
    escalate to DPO (homeostatic preference pairs)
 
+## v2 Results (2026-10-10) — also negative, but the ceiling is exposed
+
+| Probe | Result | Criterion | Verdict |
+|---|---|---|---|
+| agreement | **0.585** (illegal rate 0) | > 0.7 | △ progress, still short |
+| survival | **0.00** (mean 110.6 steps/episode) | well above random | ✗ |
+| modulation_gap ★ | **-1.00** (hungry 0% / satiated 100% toward food) | > 0.5 | ✗ **inverted** |
+
+**v2 recipe**: 200 episodes / 70,300 SFT examples + per-action stratified
+balancing (rest cap 11867) + 2 epochs + per-step distribution monitor
+(checked every 200 steps; would alarm at top > 0.6; observed top stayed
+at 0.31-0.34 throughout — **no collapse** — the monitor itself works).
+
+**Key diagnosis**: v2 crossed two thresholds that v1 failed at —
+- v1 collapsed to a single action (`down` × 100%); v2 stays distributed (top 0.33)
+- v1 modulation gap = 0 (no modulation); v2 modulation gap = -1.0
+  (**modulation is now present, but pointing the wrong way**)
+
+This is the SFT ceiling: **pure behavior cloning can learn the action
+distribution and a weak "interoception -> action" association, but it
+cannot learn the causal direction**. The 0.5B model over-memorised the
+minority "hungry + left" combinations in 70k examples and locked in a
+reversed mapping.
+
+## Conclusion and Next Step
+
+**SFT has reached its ceiling** (v1 collapse -> v2 inverted modulation).
+To go further, the gradient must come from **homeostatic consequences**
+(alive / dead) rather than from behavior cloning:
+
+- **DPO**: construct homeostatic preference pairs ("when hungry, go to
+  food" chosen vs. "when hungry, walk away" rejected) so the model
+  learns the interoception -> correct-action causal direction directly.
+- **PPO / RL**: environment reward (Δenergy, survival steps) goes
+  straight into the policy, bypassing behavior cloning.
+- **Both routes need the student to be able to step the env** — already
+  possible today: `TextEnv` runs at 0.5B.
+
 ## Usage
 
 ```powershell

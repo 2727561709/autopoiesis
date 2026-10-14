@@ -99,13 +99,17 @@ The core paradigm has three stages:
   trainings). Full log: [`exp-a-homeostatic-rl/README.md`](exp-a-homeostatic-rl/README.md).
 - **Stage B (▶ in progress, 2026-10)**: inject homeostatic + world-model
   objectives into an open-source foundation model (Qwen-0.5B + QLoRA) via
-  post-training — the actual "new-species large model". v1 (40-episode
-  teacher dataset, 13,729 examples + 1-epoch LoRA SFT) has run all three
-  probes: **negative result** — agreement 0.485 (criterion 0.7), survival
-  0.00, interoceptive modulation 0.00; the policy collapsed to a single
-  action (format learning without policy binding). Recorded honestly;
-  v2 (200 episodes + per-action balancing) is next. See
-  [`exp-b-qwen-homeostatic`](exp-b-qwen-homeostatic/README.md).
+  post-training — the actual "new-species large model".
+  - v1 (40 episodes / 13.7k + 1-epoch SFT): **negative** — policy collapsed
+    to a single action (format learning without policy binding).
+  - v2 (200 episodes / 70.3k + balance cap + 2-epoch SFT, with per-step
+    distribution monitor — **no collapse**, top stayed 0.31-0.34): also
+    **negative, but the ceiling is exposed** — agreement 0.585 (up from
+    0.485, still < 0.7), survival 0.00, modulation gap **-1.0** (reversed:
+    satiated heads to food, hungry does not). SFT can fit a distribution
+    and a weak interoception->action association, but cannot learn the
+    causal direction. Next: DPO with homeostatic preference pairs, or PPO
+    with environment reward. See [`exp-b-qwen-homeostatic`](exp-b-qwen-homeostatic/README.md).
 - **Stage C (planned)**: online lifelong learning; training and deployment
   become one.
 
@@ -124,7 +128,7 @@ py -3.12 -m homeo_rl.evaluate --ckpt runs/base/checkpoint.pt
 | Track | Status |
 |---|---|
 | Stage A: paradigm validation (exp-a) | ✅ **Done** — six-group controls, fair probes, honest correction, scale-up recorded as open problem |
-| Stage B: inject objectives into Qwen-0.5B (QLoRA) | ▶ **In progress** — v1 negative result recorded honestly (agreement 0.49 / survival 0 / modulation 0; policy collapsed to a single action); v2 next |
+| Stage B: inject objectives into Qwen-0.5B (QLoRA) | ▶ **In progress** — v1 collapsed (agreement 0.49), v2 also negative but exposed the SFT ceiling (agreement 0.59 / survival 0 / modulation **-1.0** reversed); next: DPO or PPO |
 | Stage C: lifelong online learning | Planned |
 | Cognitive modules M01–M27 | 15/27 done (347 tests), remainder on demand as Stage-B probes |
 
