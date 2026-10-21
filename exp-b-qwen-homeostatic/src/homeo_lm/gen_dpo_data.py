@@ -48,13 +48,17 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
-import torch
 
 from homeo_rl.env import EnvConfig, N_ACTIONS
-from homeo_rl.model import HomeoActorCritic
 
-from .gen_data import load_teacher
 from .textenv import ACTION_WORDS, TextEnv, obs_messages
+
+# torch / 教师模型只在真正生成数据时才导入——势函数整形的纯逻辑
+# （potential / decide_gates / rank_actions_at_state）因此可以脱离
+# torch 被单元测试直接覆盖。
+# torch and the teacher model are imported lazily, inside the functions
+# that need them, so the pure shaping logic can be unit-tested without
+# pulling in torch at all.
 
 NONE_ACTION = N_ACTIONS
 
@@ -151,6 +155,8 @@ def rank_actions_at_state(tenv: TextEnv, shape_w: float = 0.05,
 
 
 def _teacher_action(model, env, prev_a: int, device: str) -> int:
+    import torch
+
     v = torch.from_numpy(env.last_obs["vision"]).unsqueeze(0).to(device)
     i = torch.from_numpy(env.last_obs["intero"]).unsqueeze(0).to(device)
     pa = torch.tensor([prev_a], dtype=torch.long, device=device)
@@ -170,6 +176,8 @@ def generate(ckpt_path: Path, out_path: Path, pairs: int = 4000,
         {"messages": [...2 条...], "chosen": "right", "rejected": "left",
          "meta": {...}}
     """
+    from .gen_data import load_teacher
+
     model, env_cfg = load_teacher(ckpt_path, device)
     tenv = TextEnv(env_cfg)
     rng = random.Random(seed)

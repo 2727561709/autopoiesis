@@ -35,7 +35,22 @@ NONE_ACTION = N_ACTIONS
 def load_student(ckpt_dir: Path, device: str = "cuda",
                  base_model: str = "Qwen/Qwen2.5-0.5B-Instruct"):
     """载入微调后的学生模型（LoRA 适配器或合并后的完整模型）。
-    Load the fine-tuned student (LoRA adapter or merged full model)."""
+    Load the fine-tuned student (LoRA adapter or merged full model).
+
+    显存策略（2026-10-21 实测）：`device_map=` 会把整份权重（约 944MB）
+    申请成一个**连续**显存块；在 Windows WDDM 下，同时开着几十个共享
+    GPU 的桌面应用（Chrome / Edge / 飞书 / LM Studio …）时，这块连续
+    显存会申请失败——即使 nvidia-smi 显示还有 3.4GB 空闲。改为先在 CPU
+    上加载、再逐张量搬到 GPU（每块都很小），并在 OOM 时自动降级 CPU，
+    保证探针在任何内存条件下都能跑出结果。
+    VRAM strategy (measured 2026-10-21): `device_map=` requests the whole
+    weight set (~944MB) as one CONTIGUOUS block; under Windows WDDM with
+    dozens of GPU-sharing desktop apps (Chrome / Edge / Feishu /
+    LM Studio ...) that contiguous request fails even while nvidia-smi
+    reports 3.4GB free. Load on CPU first, then move tensor by tensor
+    (each block is tiny), and fall back to CPU on OOM so the probe can
+    always produce a result.
+    """
     from transformers import AutoModelForCausalLM, AutoTokenizer
     tok = AutoTokenizer.from_pretrained(str(ckpt_dir))
     if (ckpt_dir / "adapter_config.json").exists():
@@ -43,13 +58,22 @@ def load_student(ckpt_dir: Path, device: str = "cuda",
         # the base model, then attach the adapter.
         from peft import PeftModel
         base = AutoModelForCausalLM.from_pretrained(
-            base_model, torch_dtype=torch.bfloat16, device_map=device)
+            base_model, torch_dtype=torch.bfloat16)
         model = PeftModel.from_pretrained(base, str(ckpt_dir))
     else:
         model = AutoModelForCausalLM.from_pretrained(
-            str(ckpt_dir), torch_dtype=torch.bfloat16, device_map=device)
+            str(ckpt_dir), torch_dtype=torch.bfloat16)
+    if device.startswith("cuda") and torch.cuda.is_available():
+        try:
+            model.to(device)          # 逐张量搬移 / tensor-by-tensor
+        except torch.OutOfMemoryError:
+            print("WARNING: CUDA OOM while loading the student — "
+                  "falling back to CPU (slower but it will finish).")
+            device = "cpu"
+    else:
+        device = "cpu"
     model.eval()
-    return model, tok
+    return model, tok, device
 
 
 def _teacher_greedy(model, env, prev_a: int, device: str) -> int:
@@ -177,21 +201,39 @@ def main() -> None:
     ap.add_argument("--teacher", type=str,
                     default="../exp-a-homeostatic-rl/runs/curriculum/checkpoint.pt")
     ap.add_argument("--device", type=str, default=None)
+    ap.add_argument("--only", type=str, default=None,
+                    choices=["agreement", "survival", "modulation"],
+                    help="只跑一个探针（主机内存紧张时分批跑；默认跑全部）"
+                         " / run a single probe (for tight-memory machines; "
+                         "default: run all)")
     args = ap.parse_args()
     device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
 
     from .gen_data import load_teacher
     teacher, env_cfg = load_teacher(Path(args.teacher), "cpu")
-    student, tok = load_student(Path(args.ckpt), device)
+    student, tok, device = load_student(Path(args.ckpt), device)
+    print(f"student device: {device}", flush=True)
 
-    report = {
-        "checkpoint": args.ckpt,
-        "agreement": agreement_probe(student, tok, teacher, env_cfg, device=device),
-        "survival": survival_probe(student, tok, env_cfg, device=device),
-        "modulation": modulation_probe(student, tok, env_cfg, device=device),
+    probes = {
+        "agreement": lambda: agreement_probe(
+            student, tok, teacher, env_cfg, device=device),
+        "survival": lambda: survival_probe(
+            student, tok, env_cfg, device=device),
+        "modulation": lambda: modulation_probe(
+            student, tok, env_cfg, device=device),
     }
-    print(json.dumps(report, indent=2, ensure_ascii=False))
+    keys = [args.only] if args.only else list(probes)
+    report = {"checkpoint": args.ckpt}
     out = Path(args.ckpt) / "probe_report.json"
+    if out.exists():      # 分批跑时保留已有结果 / keep earlier batches
+        try:
+            report.update(json.loads(out.read_text(encoding="utf-8")))
+        except (json.JSONDecodeError, OSError):
+            pass
+    for k in keys:
+        report[k] = probes[k]()
+        print(f"[{k}] {json.dumps(report[k], ensure_ascii=False)}", flush=True)
+    print(json.dumps(report, indent=2, ensure_ascii=False))
     out.write_text(json.dumps(report, indent=2, ensure_ascii=False),
                    encoding="utf-8")
     print(f"saved: {out}")
