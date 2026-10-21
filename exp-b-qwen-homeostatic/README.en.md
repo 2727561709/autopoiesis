@@ -130,6 +130,86 @@ To go further, the gradient must come from **homeostatic consequences**
 - **Both routes need the student to be able to step the env** — already
   possible today: `TextEnv` runs at 0.5B.
 
+## v3: DPO (built and trained 2026-10-15)
+
+DPO is enabled after v2. The preference pairs are **not teacher labels**
+but same-state exhaustive contrasts ranked by the environment's true
+homeostatic consequences.
+
+### Recipe (three decisions confirmed with the user)
+
+| Decision | Choice |
+|---|---|
+| Pair source | same-state exhaustive contrast: try all 5 actions one step ahead at each state, rank by homeostatic consequence |
+| Starting point | the v2 adapter serves as both π_θ and π_ref (`disable_adapter` reuses one base model; 1.2GB VRAM) |
+| β | 0.1 (TRL default scale) |
+
+Implementation: `homeo_lm.gen_dpo_data` / `homeo_lm.dpo` (hand-written DPO
+loss, no new dependencies; assistant-token-only logprobs; reuses the SFT
+collapse monitor).
+
+### Three label-level pitfalls (each found and fixed in the smoke test)
+
+A naive one-step contrast yields **wrong labels** in a homeostatic
+environment — this is v3's most important lesson:
+
+1. **Sparse-reward trap**: with food 3 cells away, walking toward it costs
+   exactly the same -0.015 as walking anywhere, and `rest` (-0.005) always
+   wins -> naive pairs would train an "always rest" collapse.
+   **Fix**: potential-based shaping (PBRS) — `shaped = r + w·[φ(s') - φ(s)]`,
+   with `φ = -dist(food)` gated by hunger and `+dist(hazard)` gated by
+   injury. PBRS provably preserves the optimal policy, and the
+   interoceptive modulation is built directly into the gate.
+
+2. **Eat-respawn trap**: food respawns elsewhere after being eaten, so
+   `φ(s')` computed from the respawned food yields a large negative
+   shaping that drowns the +0.33 true eating gain.
+   **Fix**: eat steps skip shaping (the raw reward is already a strong
+   signal).
+
+3. **View-discontinuity trap**: baking visibility straight into `φ` lets
+   one outward step push food out of view, snapping φ back to 0 for a
+   **positive** shaping.
+   **Fix**: gates are decided once at the sampled state; all 5
+   counterfactuals within a state use continuous omniscient distances.
+
+After the fixes every label verifies correct: hungry + food 3 cells right
+-> `right`; satiated -> `rest` (the antidote to v2's reversal); injured +
+hazard-adjacent -> rejects stepping into the hazard; hungry + food-adjacent
+-> eats.
+
+### Training results
+
+4,002 pairs (half teacher / half random rollouts) × 2 epochs = 500
+optimizer steps:
+
+| Metric | Smoke (200 pairs) | Full (500 steps) |
+|---|---|---|
+| loss | 0.52 | **0.12** |
+| margin (how much the policy prefers chosen) | +0.44 | **+4.23** |
+| acc (fraction with margin > 0) | 0.82 | **0.97** |
+| collapse monitor top | 0.33 | **0.41** (healthy) |
+
+The margin grew from +0.44 to +4.23: the policy now strongly prefers the
+homeostatically better action — the DPO loop itself works.
+
+### Probes: **pending** (blocked by system memory)
+
+The `runs/dpo-v3` adapter is saved, but the three probes have not run yet.
+On 2026-10-21 four consecutive attempts crashed inside `safe_open` with
+`OSError 1455 (page file too small)` — the system commit charge was
+38.8 / 39.9 GB (1.1GB left), and even importing numpy/torch failed.
+
+**Unblock with any one of**:
+1. Enlarge the page file (currently only 8.4GB; needs admin + reboot)
+2. Close high-commit apps (pyrefly 1.6GB / ChatGPT 1.0GB / WorkBuddy 1.0GB)
+3. Reboot the machine and run the probe first thing
+
+Run with: `py -3.12 -m homeo_lm.probe --ckpt runs/dpo-v3 --teacher ../exp-a-homeostatic-rl/runs/curriculum/checkpoint.pt`
+
+**What to read**: whether `modulation_gap` flips from v2's **-1.0 to
+positive** (> 0.5 passes). That single number is v3's verdict.
+
 ## Usage
 
 ```powershell
