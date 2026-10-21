@@ -210,6 +210,42 @@ Run with: `py -3.12 -m homeo_lm.probe --ckpt runs/dpo-v3 --teacher ../exp-a-home
 **What to read**: whether `modulation_gap` flips from v2's **-1.0 to
 positive** (> 0.5 passes). That single number is v3's verdict.
 
+## v4 route: PPO (implemented, not yet trained)
+
+`homeo_lm.ppo` — the environment reward goes **straight into the
+policy**, bypassing behavior cloning entirely:
+
+    rollout: the student plays TextEnv itself -> homeostatic reward
+    update : PPO-clip on the LoRA; the token probability of
+             high-reward action words rises
+
+| Design | Choice | Rationale |
+|---|---|---|
+| Action space | FIRST TOKEN of the 5 action words; logits renormalised over those 5 | RL over a discrete action set; entropy and sampling stay well-behaved |
+| Advantage | batch-normalised returns (no critic) | 4GB VRAM leaves no room for a value net; higher variance, but a single model trains |
+| Reward shaping | reuses the DPO PBRS (same gates, eat steps skipped) | the homeostatic reward is too sparse to learn from raw |
+| KL penalty | none (would need a second reference model) | stability comes from the entropy bonus and a small lr |
+
+Training logs: return, loss, entropy, clip fraction, **survival rate /
+mean episode length**, per-action distribution (alarm at top > 0.9).
+Supports `--resume` and periodic snapshots, same convention as SFT/DPO.
+
+Run: `py -3.12 -m homeo_lm.ppo --ckpt runs/dpo-v3 --out runs/ppo-v4`
+
+## Extended read-out: `modulation-sweep`
+
+A single gap is one difference; `--only modulation-sweep` sweeps an
+energy gradient (0.2 -> 1.0) and yields a **dose-response curve** that
+separates three failure modes:
+
+| Curve shape | Verdict |
+|---|---|
+| flat | no modulation |
+| monotonically decreasing | inverted modulation (exactly v2) |
+| **monotonically increasing** | **correct modulation — the hungrier, the more it heads for food** |
+
+Run: `py -3.12 -m homeo_lm.probe --ckpt <adapter> --only modulation-sweep`
+
 ## Usage
 
 ```powershell

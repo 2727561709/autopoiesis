@@ -194,6 +194,51 @@ def modulation_probe(student, tok, env_cfg: EnvConfig, trials: int = 40,
             "modulation_gap": rates["hungry"] - rates["satiated"]}
 
 
+# ------------------------------------------- 探针 3b：内感受剂量-反应曲线
+def modulation_sweep(student, tok, env_cfg: EnvConfig, trials: int = 20,
+                     device: str = "cpu",
+                     energies=(0.2, 0.4, 0.6, 0.8, 1.0)) -> Dict:
+    """调制探针的剂量-反应版：扫一条能量梯度，看"朝食物"比例如何随
+    内感受状态变化。
+    Dose-response version of the modulation probe: sweep an energy
+    gradient and watch how the toward-food rate tracks the
+    interoceptive state.
+
+    单个 modulation_gap 只给一个差值；曲线能区分三种失败模式：
+    - 全程平（无调制）
+    - 单调下降（反向调制，v2 就是这样）
+    - 单调上升（正确调制——越饿越想找食物）
+    A single gap gives one difference; the curve distinguishes three
+    failure modes: flat (no modulation), monotonically decreasing
+    (inverted — v2), monotonically increasing (correct — the hungrier,
+    the more it heads for food).
+    """
+    tenv = TextEnv(env_cfg)
+    curve: Dict[str, float] = {}
+    for energy in energies:
+        toward = 0
+        for t in range(trials):
+            tenv.reset(seed=50_000 + t)
+            e = tenv.env
+            r, c = e.agent
+            e.hazards, e.foods = set(), {(r, c + 3)}
+            e.energy, e.integrity, e.t = energy, 0.9, 0
+            e.last_obs = e.observation()
+            word = _student_action(student, tok, e, None, device)
+            a = WORD_TO_ACTION.get(word.strip().lower().strip("."))
+            toward += int(a == 3)  # right
+        curve[f"{energy:.2f}"] = toward / trials
+    rates = list(curve.values())
+    # 能量升序下"朝食物"比例的斜率（>0 = 正确调制）
+    # slope of the toward-food rate over ascending energy
+    slope = float(np.polyfit(list(energies), rates, 1)[0]) if len(rates) > 1 else 0.0
+    return {"trials": trials, "energies": list(energies),
+            "toward_food_by_energy": curve,
+            "slope": slope,
+            "monotone_increasing": bool(all(
+                rates[i] <= rates[i + 1] for i in range(len(rates) - 1)))}
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(
         description="阶段B行为探针 / Stage-B behavioral probes")
@@ -202,7 +247,8 @@ def main() -> None:
                     default="../exp-a-homeostatic-rl/runs/curriculum/checkpoint.pt")
     ap.add_argument("--device", type=str, default=None)
     ap.add_argument("--only", type=str, default=None,
-                    choices=["agreement", "survival", "modulation"],
+                    choices=["agreement", "survival", "modulation",
+                             "modulation-sweep"],
                     help="只跑一个探针（主机内存紧张时分批跑；默认跑全部）"
                          " / run a single probe (for tight-memory machines; "
                          "default: run all)")
@@ -220,6 +266,8 @@ def main() -> None:
         "survival": lambda: survival_probe(
             student, tok, env_cfg, device=device),
         "modulation": lambda: modulation_probe(
+            student, tok, env_cfg, device=device),
+        "modulation-sweep": lambda: modulation_sweep(
             student, tok, env_cfg, device=device),
     }
     keys = [args.only] if args.only else list(probes)
