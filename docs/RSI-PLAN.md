@@ -111,6 +111,20 @@ improvement — that is exactly what produced v2's inversion.
 UCB bandit first, not Bayesian optimisation: few knobs, high noise,
 and every trial's result lands in the ledger for reproducibility.
 
+**P1 已实现**（`homeo_lm.rsi_l0`）：`KNOBS` 五旋钮各有离散取值域；
+`FORBIDDEN_KEYS` 结构性拒绝（不看指标）；`ucb_propose` 先试未试过的臂、
+再按"均值 + c·√(ln N / n)"挑；`Budget` 封顶试验数并对连续失败熔断；
+`oscillating` 检测锯齿（在噪声里打转就停下交给人）；`decide` 三态判定
+（守卫失败/显著变差 → 回滚；显著变好 → 采纳；否则拒绝）。
+`rsi.py --cycle` 驱动一个周期，**默认 dry-run**——只打印"下一步试什么"
+与训练命令，不执行（一次试验要真跑训练 + 全套探针，时机由人决定）。
+P1 implemented (`homeo_lm.rsi_l0`): five bounded knobs; structural
+rejection of `FORBIDDEN_KEYS` (metrics never consulted); UCB1 with
+untried arms first; trial budget + circuit breaker; zig-zag detection;
+three-way verdict (guardrail / regression -> rollback, significant gain
+-> adopt, else reject). `rsi.py --cycle` drives one cycle and is
+DRY-RUN by default.
+
 ### L1：自产训练信号（Phase 2）
 
 两条并行轨道，目标都是"数据分布跟着自己当前的错误走"：
@@ -186,7 +200,7 @@ RSI 在这个环境里买不到任何东西——**这也是有价值的结果�
 | Phase | 内容 | 产物 | 验收标准 |
 |---|---|---|---|
 | **P0 测量** | 快速探针（批量生成、多种子、CI）、探针套扩展（steps_to_food、世界模型精度、驱动平衡）、种子三分 | `probe` 加速 + `probe_suite.py` + 种子管理 | 全套探针 **< 3 分钟**、可重复（同 seed 同结果） |
-| **P1 L0** | 旋钮空间定义 + UCB bandit + 门控 + 账本 + 回滚 | `rsi.py`（controller）、`ledger.jsonl` | 在固定预算下 `B ≥ A`；无熔断触发 |
+| **P1 L0** ✅ 代码已就绪（2026-10-25） | 旋钮空间定义 + UCB bandit + 门控 + 账本 + 回滚 | `rsi.py`、`rsi_l0.py` | 在固定预算下 `B ≥ A`；无熔断触发 |
 | **P2 L1** | on-policy 偏好对 + PPO 密集闭环 | `gen_dpo_data --policy`、PPO 每 update 轻探针 | 调制的**改进速度**快于基线（而非最终值） |
 | **P3 L2** | M17 元认知假设生成 + L2 旋钮 + 反振荡 | `cog-metacognition` 模块 | 至少一条假设被**证伪**并留下负结果记录 |
 | **P4** | 并入 Stage C：训练与部署合一，在线终身改进 | 在线循环 | 长期（>10 周期）无退化、无振荡 |

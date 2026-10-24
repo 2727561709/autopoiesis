@@ -214,6 +214,22 @@ token 上取 argmax"，批内**一次前向**出所有决策。存活探针 20 �
 
 用法：`py -3.12 -m homeo_lm.rsi --ckpt runs/dpo-v3 --tag baseline-A`
 
+### L0 自适应调参（2026-10-25，代码就绪）
+
+`homeo_lm.rsi_l0` + `rsi.py --cycle`：**默认 dry-run**，只输出"下一步试
+什么"和对应训练命令，不执行训练（一次试验要真跑训练 + 全套探针）。
+
+| 部件 | 行为 |
+|---|---|
+| `KNOBS` | 5 个有界旋钮：`shape_w` / `gate_margin` / `teacher_mix` / `entropy_coef` / `curriculum` |
+| `FORBIDDEN_KEYS` | 内稳态目标、环境物理、探针、门控自身——**结构性拒绝，不看指标** |
+| `ucb_propose` | UCB1：先试未试过的臂，再按"均值 + c·√(ln N/n)"挑 |
+| `Budget` | 每周期试验封顶；连续失败 → 熔断，交给人 |
+| `oscillating` | 锯齿检测：同一旋钮来回翻转 = 在噪声里打转，停下 |
+| `decide` | 三态：守卫失败/显著变差 → **回滚**；显著变好 → 采纳；否则拒绝 |
+
+用法：`py -3.12 -m homeo_lm.rsi --cycle --out runs/rsi_ledger.jsonl`
+
 ## v4 路线：PPO（已实现，未训练）
 
 `homeo_lm.ppo` —— 让环境回报**直入策略**，彻底绕开行为克隆：

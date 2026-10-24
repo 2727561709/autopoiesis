@@ -226,10 +226,68 @@ def _cuda() -> bool:
         return False
 
 
+def _run_cycle(args) -> None:
+    """一个 L0 周期：提议 → 门控 →（可选）试验 → 判定 → 记账。
+    One L0 cycle: propose -> gate -> (optional) trial -> decide -> record.
+
+    默认 **dry-run**：只打印"下一步该试什么"和对应的训练命令，不执行。
+    因为一次试验要真跑训练 + 全套探针，在内存紧张的机器上必须先由人来
+    确认时机。
+    Default is DRY-RUN: it prints what to try next and the matching
+    training commands, and executes nothing. A trial means real training
+    plus the full probe suite, so a human must pick the moment on a
+    memory-tight machine.
+    """
+    from .rsi_l0 import KNOBS as L0_KNOBS
+    from .rsi_l0 import Budget, cycle_plan
+
+    knobs = args.knobs.split(",") if args.knobs else list(L0_KNOBS)
+    ledger = Ledger(Path(args.out))
+    hist = ledger.read()
+    cfg = dict(DEFAULT_PROBE_CFG)
+    cfg["batch_size"] = args.batch_size
+    ph = probe_hash(cfg)
+    base = next((e.get("probe_hash") for e in hist if e.get("verdict") == "baseline"),
+                None)
+    budget = Budget(max_trials=args.max_trials)
+    fails = 0
+    for e in reversed(hist):
+        if e.get("verdict") in ("adopt", "reject"):
+            fails = 0 if e.get("verdict") == "adopt" else fails + 1
+        if e.get("verdict") == "adopt":
+            break
+    plan = cycle_plan(hist, knobs, ph, base, budget,
+                      cycle_trials=0, consecutive_fail=fails)
+    print(json.dumps(plan, ensure_ascii=False, indent=2, default=str))
+    if not plan["gate"]["ok"]:
+        print("GATE REJECTED:", "; ".join(plan["gate"]["reasons"]))
+        return
+    cmds = []
+    for stage, extra in plan["args"].items():
+        if stage == "dpo_pairs":
+            cmds.append("py -3.12 -m homeo_lm.gen_dpo_data " + " ".join(extra))
+        elif stage == "ppo":
+            cmds.append("py -3.12 -m homeo_lm.ppo " + " ".join(extra))
+        elif stage == "env":
+            cmds.append(f"[env stage] {' '.join(extra)}")
+    for c in cmds:
+        print("CMD:", c)
+    if not args.run_trials:
+        print("DRY-RUN: 未执行任何训练（加 --run-trials 才真跑）"
+              " / nothing executed (add --run-trials to actually run)")
+        ledger.append({"tag": f"plan-{len(hist)}", "verdict": "plan",
+                       "change": plan["proposal"]["change"],
+                       "probe_hash": ph, "commands": cmds})
+        return
+    # 真跑：训练 → 测量 → 判定 → 记账
+    # real run: train -> measure -> decide -> record
+    raise SystemExit("trial execution is not wired yet (P1 hardening)")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(
-        description="RSI 控制器（P0）：测量 → 记账 / RSI controller "
-                    "(P0): measure -> record")
+        description="RSI 控制器（P0/P1）：测量 → 记账 →（L0）自动调参"
+                    " / RSI controller: measure -> record -> (L0) tuning")
     ap.add_argument("--ckpt", type=str, default="runs/dpo-v3")
     ap.add_argument("--teacher", type=str,
                     default="../exp-a-homeostatic-rl/runs/curriculum/checkpoint.pt")
@@ -242,7 +300,25 @@ def main() -> None:
                          'empty for a baseline')
     ap.add_argument("--device", type=str, default=None)
     ap.add_argument("--batch-size", type=int, default=32)
+    ap.add_argument("--cycle", action="store_true",
+                    help="跑一个 L0 周期：提议 → 门控 →（可选）试验 → 判定"
+                         " / run one L0 cycle: propose -> gate -> "
+                         "(optional) trial -> decide")
+    ap.add_argument("--run-trials", action="store_true",
+                    help="真正执行训练（默认 dry-run：只打印命令）"
+                         " / actually run training (default: dry-run, "
+                         "print the commands only)")
+    ap.add_argument("--knobs", type=str, default=None,
+                    help="允许自动调的旋钮（默认全部 L0 旋钮）"
+                         " / knobs allowed for auto-tuning "
+                         "(default: all L0 knobs)")
+    ap.add_argument("--max-trials", type=int, default=5,
+                    help="每周期试验上限 / trials per cycle")
     args = ap.parse_args()
+
+    if args.cycle:
+        _run_cycle(args)
+        return
 
     report = run_report(Path(args.ckpt), Path(args.teacher), args.device,
                         batch_size=args.batch_size)

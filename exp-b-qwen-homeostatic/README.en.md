@@ -249,6 +249,23 @@ advances all 20 episodes in parallel.
 
 Run: `py -3.12 -m homeo_lm.rsi --ckpt runs/dpo-v3 --tag baseline-A`
 
+### L0 self-tuning (2026-10-25, code ready)
+
+`homeo_lm.rsi_l0` + `rsi.py --cycle`: **dry-run by default** — it prints
+what to try next and the matching training commands, and executes
+nothing (a trial means real training plus the full probe suite).
+
+| Part | Behaviour |
+|---|---|
+| `KNOBS` | five bounded knobs: `shape_w` / `gate_margin` / `teacher_mix` / `entropy_coef` / `curriculum` |
+| `FORBIDDEN_KEYS` | homeostatic objective, env physics, probes, the gate itself — **rejected structurally, metrics never consulted** |
+| `ucb_propose` | UCB1: untried arms first, then mean + c·sqrt(ln N / n) |
+| `Budget` | trials per cycle capped; repeated failure -> circuit breaker, hand to a human |
+| `oscillating` | zig-zag detection: a knob flipping back and forth means spinning in noise — stop |
+| `decide` | three-way: guardrail / regression -> **rollback**; significant gain -> adopt; else reject |
+
+Run: `py -3.12 -m homeo_lm.rsi --cycle --out runs/rsi_ledger.jsonl`
+
 ## v4 route: PPO (implemented, not yet trained)
 
 `homeo_lm.ppo` — the environment reward goes **straight into the
