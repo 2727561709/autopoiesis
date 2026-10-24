@@ -112,6 +112,13 @@ The core paradigm has three stages:
     with environment reward. See [`exp-b-qwen-homeostatic`](exp-b-qwen-homeostatic/README.md).
 - **Stage C (planned)**: online lifelong learning; training and deployment
   become one.
+- **RSI (recursive self-improvement)**: design draft —
+  [`docs/RSI-PLAN.md`](docs/RSI-PLAN.md). Three levels (L0 self-tuning,
+  L1 self-generated training signal, L2 gated change of the learning
+  rule), seven hard safety constraints, and a control-group design for
+  the honest question: at equal compute, does RSI beat "just train
+  longer"? Its load-bearing principle: **the environment grades, the
+  model never grades itself.**
 
 ```powershell
 cd exp-a-homeostatic-rl

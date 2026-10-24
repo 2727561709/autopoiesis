@@ -86,6 +86,10 @@
     （内稳态偏好对）或 PPO（环境回报直入策略）。实验目录：
     [`exp-b-qwen-homeostatic`](exp-b-qwen-homeostatic/README.md)。
 - **阶段 C（规划）**：在线终身学习，训练/部署合一。
+- **RSI（递归自我改进）**：设计稿 [`docs/RSI-PLAN.md`](docs/RSI-PLAN.md)。
+  三层分级（L0 自适应调参 / L1 自产训练信号 / L2 门控下改学习规则）、
+  七条硬约束、以及回答"同等算力下 RSI 是否真比闷头多训更强"的对照组设计。
+  承重原则：**环境打分，模型永不自评**。
 
 ```powershell
 cd exp-a-homeostatic-rl
