@@ -289,6 +289,40 @@ training loads policy+reference, measurement loads the student — two
 Run: `py -3.12 -m homeo_lm.selftrain --start runs/dpo-v3 --rounds 3`
 (add `--run` to actually execute)
 
+### L2 metacognition + gated change of the learning rule (2026-10-25, code ready)
+
+`homeo_lm.metacog` + `rsi.py --level 2`. L2 changes **the learning rule
+itself** (LoRA rank / lr / consolidation), so it REQUIRES hypotheses —
+otherwise it is random search, and random search yields no attribution
+and therefore no accumulation.
+
+**Every hypothesis must carry three parts** (enforced by
+`is_falsifiable()`; a missing prediction blocks any action): `claim` —
+a falsifiable assertion; `prediction` — which number moves which way if
+it is true; `knob` — what would refute it.
+
+| Hypothesis | Evidence (>= 2 conditions at once) | Refuting knob |
+|---|---|---|
+| `capacity_deficit` | high train_acc · gap<=0 · curve not rising | `lora_rank` |
+| `optimization_underfit` | low margin · high loss · gap<0.5 | `lr` |
+| `distribution_mismatch` | high agreement · low survival · holdout much worse | `teacher_mix` |
+| `shaping_misspecified` | gap~0 · low illegal rate · low survival | `shape_w` |
+| `catastrophic_forgetting` | rose then fell · training loss still falling | `replay_frac` |
+| `collapse` | top share >= 0.6 · entropy < 0.2 | `entropy_coef` |
+
+- **a missing metric is UNKNOWN and never fires a rule** (no hunches
+  allowed as evidence)
+- **historical hit rates feed ranking** (`hit_rates` + UCB): hypothesis
+  classes that the environment used to confirm get priority — that is
+  what makes it "meta"
+- **`l2_gate` is stricter than L0**: holdout verified · >= 2 seeds ·
+  **single variable** (one knob at a time, or there is no attribution) ·
+  L2-only knobs
+- load-bearing principle unchanged: **the system proposes, the
+  environment decides**
+
+Run: `py -3.12 -m homeo_lm.rsi --level 2 --metrics-file m.json --holdout --seeds 3`
+
 ## v4 route: PPO (implemented, not yet trained)
 
 `homeo_lm.ppo` — the environment reward goes **straight into the

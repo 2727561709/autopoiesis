@@ -249,6 +249,33 @@ L0 调旋钮，**L1 调数据本身**：让学生自己走进环境，在它**�
 
 用法：`py -3.12 -m homeo_lm.selftrain --start runs/dpo-v3 --rounds 3`（加 `--run` 才真跑）
 
+### L2 元认知 + 门控改学习规则（2026-10-25，代码就绪）
+
+`homeo_lm.metacog` + `rsi.py --level 2`。L2 动的是**学习规则本身**
+（LoRA rank / lr / 巩固策略），所以必须有假设——否则就是在超参空间里
+乱撞，乱撞无法归因、也就无法积累。
+
+**一条假设强制三件套**（`is_falsifiable()` 检查，缺 prediction 不许动手）：
+`claim` 可证伪断言 + `prediction` 若为真哪个数往哪动 + `knob` 用什么证伪它。
+
+| 假设 | 触发证据（需**同时**成立 ≥2 条） | 证伪旋钮 |
+|---|---|---|
+| `capacity_deficit` | train_acc 高 · gap≤0 · 曲线不升 | `lora_rank` |
+| `optimization_underfit` | margin 低 · loss 高 · gap<0.5 | `lr` |
+| `distribution_mismatch` | 一致率高 · 存活低 · 留出远差 | `teacher_mix` |
+| `shaping_misspecified` | gap≈0 · 非法率低 · 存活低 | `shape_w` |
+| `catastrophic_forgetting` | 先升后降 · 训练损失仍在降 | `replay_frac` |
+| `collapse` | top share≥0.6 · 熵<0.2 | `entropy_coef` |
+
+- **缺失指标 = 不知道，不触发**（不许拿猜测当证据）
+- **历史命中率进排序**（`hit_rates` + UCB）：哪类假设过去常被环境证实就
+  更优先试——这才是"元"
+- **`l2_gate` 比 L0 严**：留出集必须验过 · ≥2 seed · **单变量**（一次只
+  改一个旋钮，否则无法归因）· 旋钮必须属 L2
+- 承重原则不变：**系统提假设，环境做判定**
+
+用法：`py -3.12 -m homeo_lm.rsi --level 2 --metrics-file m.json --holdout --seeds 3`
+
 ## v4 路线：PPO（已实现，未训练）
 
 `homeo_lm.ppo` —— 让环境回报**直入策略**，彻底绕开行为克隆：

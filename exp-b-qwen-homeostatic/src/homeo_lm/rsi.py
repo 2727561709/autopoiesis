@@ -226,6 +226,50 @@ def _cuda() -> bool:
         return False
 
 
+def _run_l2(args) -> None:
+    """L2：诊断 → 假设 → 门控（仍不自动执行训练）。
+    L2: diagnose -> hypothesize -> gate (still executes no training).
+
+    指标未提供时，从账本最后一条记录里取（"上一轮测出来的数"）。
+    If no metrics are given, take them from the last ledger entry.
+    """
+    from .metacog import diagnose, l2_gate, rank
+
+    ledger = Ledger(Path(args.out))
+    rows = ledger.read()
+    if args.metrics_file:
+        metrics = json.loads(Path(args.metrics_file).read_text(
+            encoding="utf-8"))
+    elif args.metrics:
+        metrics = json.loads(args.metrics)
+    else:
+        metrics = (rows[-1].get("metrics") if rows else None) or {}
+    hyps = diagnose(metrics)
+    ranked = rank(hyps, rows)
+    print(json.dumps({"metrics": metrics, "hypotheses": ranked},
+                     ensure_ascii=False, indent=2, default=str))
+    if not hyps:
+        print("no hypothesis fired — nothing to change (this is the "
+              "correct outcome when metrics are healthy)")
+        return
+    top = hyps[0]
+    change = {top.knob: top.values[len(top.values) // 2]}
+    g = l2_gate(top, holdout_checked=args.holdout, seeds=args.seeds,
+                change=change)
+    print(json.dumps({"hypothesis": top.as_dict(), "proposed_change": change,
+                      "gate": g}, ensure_ascii=False, indent=2,
+                     default=str))
+    if not g["ok"]:
+        print("L2 GATE REJECTED:", "; ".join(g["reasons"]))
+        return
+    print("L2 DRY-RUN: 只给出假设与变更，未执行任何训练"
+          " / hypothesis and change only; no training executed")
+    ledger.append({"tag": f"L2-{top.id}", "verdict": "plan",
+                   "change": {"hypothesis": top.id, **change},
+                   "probe_hash": probe_hash(DEFAULT_PROBE_CFG),
+                   "prediction": top.prediction})
+
+
 def _run_cycle(args) -> None:
     """一个 L0 周期：提议 → 门控 →（可选）试验 → 判定 → 记账。
     One L0 cycle: propose -> gate -> (optional) trial -> decide -> record.
@@ -314,8 +358,26 @@ def main() -> None:
                          "(default: all L0 knobs)")
     ap.add_argument("--max-trials", type=int, default=5,
                     help="每周期试验上限 / trials per cycle")
+    ap.add_argument("--level", type=int, default=0, choices=[0, 1, 2],
+                    help="自我改进层级：0 调旋钮 / 1 调数据 / 2 调学习规则"
+                         " / improvement level: 0 knobs, 1 data, "
+                         "2 learning rule")
+    ap.add_argument("--metrics", type=str, default=None,
+                    help='L2 诊断用指标 JSON / metrics JSON for L2 '
+                         'diagnosis')
+    ap.add_argument("--metrics-file", type=str, default=None,
+                    help="从文件读指标 JSON（Windows 下命令行转义引号太痛"
+                         "苦）/ read metrics JSON from a file (quoting "
+                         "JSON on the Windows shell is painful)")
+    ap.add_argument("--seeds", type=int, default=0,
+                    help="L2 门控：已验证的独立 seed 数 / seeds verified")
+    ap.add_argument("--holdout", action="store_true",
+                    help="L2 门控：留出集已验过 / holdout verified")
     args = ap.parse_args()
 
+    if args.level == 2:
+        _run_l2(args)
+        return
     if args.cycle:
         _run_cycle(args)
         return

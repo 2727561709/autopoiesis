@@ -172,6 +172,33 @@ significance. `ppo --probe-every N` runs a light in-training probe.
 - 每个假设附带**可证伪的预期**（"若容量是瓶颈，rank↑ 后调制 gap 应上升"）
 - 假设被证伪时，账本记录**负结果**，并降低该类假设的采样权重
 
+**P3 已实现**（`homeo_lm.metacog` + `rsi.py --level 2`）：六条诊断规则
+各自要求**多个证据同时成立**才点火，缺失指标视为"不知道"、**不触发**
+（不许拿猜测当证据）：
+
+| 假设 | 触发证据 | 证伪用旋钮 |
+|---|---|---|
+| `capacity_deficit` | train_acc 高 + gap≤0 + 曲线不升 | `lora_rank` |
+| `optimization_underfit` | margin 低 + loss 高 + gap<0.5 | `lr` |
+| `distribution_mismatch` | 一致率高 + 存活低 / 留出远差于训练 | `teacher_mix` |
+| `shaping_misspecified` | gap≈0 + 非法率低 + 存活低 | `shape_w` |
+| `catastrophic_forgetting` | 先升后降 + 训练损失仍在降 | `replay_frac` |
+| `collapse` | top share≥0.6 + 熵<0.2 | `entropy_coef` |
+
+每条假设强制三件套：`claim`（可证伪断言）+ `prediction`（若为真哪个数
+往哪动）+ `knob`（用什么证伪它）——`is_falsifiable()` 会检查，缺
+prediction 不许动手。**历史命中率进排序**（`hit_rates` + UCB）：哪类假设
+过去常被环境证实就更优先试，这才是"元"。
+`l2_gate` 比 L0 严：留出集必须验过、≥2 seed、**单变量**（一次只改一个
+旋钮，否则无法归因）、旋钮必须属 L2。
+P3 implemented (`homeo_lm.metacog` + `rsi.py --level 2`): six diagnosis
+rules, each requiring several conditions at once; a missing metric is
+UNKNOWN and never fires a rule. Every hypothesis must carry
+claim + prediction + knob (`is_falsifiable()` enforces it). Historical
+hit rates feed ranking (`hit_rates` + UCB) — that is what makes it
+"meta". `l2_gate` is stricter than L0: holdout verified, >= 2 seeds,
+single variable, L2-only knobs.
+
 ---
 
 ## 5. 安全设计：七条硬约束
@@ -224,7 +251,7 @@ RSI 在这个环境里买不到任何东西——**这也是有价值的结果�
 | **P0 测量** | 快速探针（批量生成、多种子、CI）、探针套扩展（steps_to_food、世界模型精度、驱动平衡）、种子三分 | `probe` 加速 + `probe_suite.py` + 种子管理 | 全套探针 **< 3 分钟**、可重复（同 seed 同结果） |
 | **P1 L0** ✅ 代码已就绪（2026-10-25） | 旋钮空间定义 + UCB bandit + 门控 + 账本 + 回滚 | `rsi.py`、`rsi_l0.py` | 在固定预算下 `B ≥ A`；无熔断触发 |
 | **P2 L1** ✅ 代码已就绪（2026-10-25） | on-policy 偏好对 + PPO 密集闭环 | `gen_dpo_data --policy`、`selftrain.py`、PPO `--probe-every` | 调制的**改进速度**快于基线（而非最终值） |
-| **P3 L2** | M17 元认知假设生成 + L2 旋钮 + 反振荡 | `cog-metacognition` 模块 | 至少一条假设被**证伪**并留下负结果记录 |
+| **P3 L2** ✅ 代码已就绪（2026-10-25） | M17 元认知假设生成 + L2 旋钮 + 反振荡 | `metacog.py`、`rsi.py --level 2` | 至少一条假设被**证伪**并留下负结果记录 |
 | **P4** | 并入 Stage C：训练与部署合一，在线终身改进 | 在线循环 | 长期（>10 周期）无退化、无振荡 |
 
 **P0 的硬前置**：当前探针被系统内存卡住（`OSError 1455`），需先释放内存
