@@ -323,6 +323,40 @@ it is true; `knob` — what would refute it.
 
 Run: `py -3.12 -m homeo_lm.rsi --level 2 --metrics-file m.json --holdout --seeds 3`
 
+### P4: merging into Stage C — training and deployment as one (2026-10-25, code ready)
+
+The first three levels are all **offline**; P4 attaches the loop to a
+**running** policy. Unification brings a new risk: one bad update would
+**replace the live policy**. So the load-bearing parts change:
+
+| Rule | Mechanism |
+|---|---|
+| the live policy is never replaced in place | the candidate runs in shadow and is promoted only if the **canary** passes (`promote`) |
+| any metric regressing blocks promotion | no trading one metric for another (all three monitored metrics checked) |
+| holdout delta above the threshold | live up but holdout flat = memorising the current stream |
+| long-run health | no degradation, no oscillation over >10 cycles; K cycles without a new best -> **plateau alarm** |
+
+`lifelong.py`: `promote` / `drift` / `throttle` / `health` /
+`LifelongLoop`. The throttle keeps improvement from hogging live compute
+(drift may start a cycle early, but a time floor still applies).
+
+### Meta-experiment: is RSI worth it (`metaexp.py`)?
+
+> Not "are the metrics high?" but **at equal compute, does RSI beat just
+> training longer?**
+
+Five groups A-E (A control / B L0 / C L1 / D L0+L1 / E everything);
+`equal_compute()` verifies that compute is **genuinely equal** across
+groups (otherwise the whole round is void). Criterion:
+**superadditivity** — `D > A` and `D > B` and `D > C`.
+
+The verdict carries an **evidence floor**, `MIN_MARGIN = 0.02`: D beating
+A by 0.01 is not evidence (written and auditable, not a knob to fiddle
+with). `D ≈ A` is honestly reported as `no_evidence`: **a negative result
+must be recorded, not hidden**.
+
+Run: `py -3.12 -m homeo_lm.metaexp --groups ABCDE`
+
 ## v4 route: PPO (implemented, not yet trained)
 
 `homeo_lm.ppo` — the environment reward goes **straight into the

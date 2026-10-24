@@ -252,7 +252,43 @@ RSI 在这个环境里买不到任何东西——**这也是有价值的结果�
 | **P1 L0** ✅ 代码已就绪（2026-10-25） | 旋钮空间定义 + UCB bandit + 门控 + 账本 + 回滚 | `rsi.py`、`rsi_l0.py` | 在固定预算下 `B ≥ A`；无熔断触发 |
 | **P2 L1** ✅ 代码已就绪（2026-10-25） | on-policy 偏好对 + PPO 密集闭环 | `gen_dpo_data --policy`、`selftrain.py`、PPO `--probe-every` | 调制的**改进速度**快于基线（而非最终值） |
 | **P3 L2** ✅ 代码已就绪（2026-10-25） | M17 元认知假设生成 + L2 旋钮 + 反振荡 | `metacog.py`、`rsi.py --level 2` | 至少一条假设被**证伪**并留下负结果记录 |
-| **P4** | 并入 Stage C：训练与部署合一，在线终身改进 | 在线循环 | 长期（>10 周期）无退化、无振荡 |
+| **P4** ✅ 代码已就绪（2026-10-25） | 并入 Stage C：训练与部署合一，在线终身改进 | `lifelong.py`、`metaexp.py` | 长期（>10 周期）无退化、无振荡；且元实验给出 `D > A` |
+
+### P4：并入 Stage C（代码已就绪）
+
+前三层的闭环都还是**离线**的；P4 把它接到**正在运行**的策略上。合一带来
+的新风险是：一次坏更新会**直接换掉线上策略**（离线时最坏只是浪费算力）。
+因此这一层的承重件变了：
+
+1. **线上策略永不被原地替换**：候选先在影子侧跑，过金丝雀才晋升
+2. **任一受监控指标回退即不晋升**——不许用一项换另一项
+3. **留出集增量必须 > 阈值**：线上涨、留出不动 = 只是在背当前的数据流
+4. **长期健康**（`health()`）：>10 周期不许退化、不许振荡；连续 K 个周期
+   没刷新最好成绩 → 平台报警（可能是停滞，也可能真到顶了，都要人来看）
+
+`homeo_lm.lifelong` 提供 `promote` / `drift` / `throttle` / `health` 与
+`LifelongLoop`（只产出建议，训练仍由子进程跑）。节流阀保证改进不霸占线上
+算力；漂移是例外，可提前开周期但仍有时间下限。
+
+### 元实验：RSI 到底值不值（`homeo_lm.metaexp`）
+
+> 问题不是"指标高不高"，而是**同等算力下 RSI 是否优于闷头多训**。
+
+A–E 五组（A 对照 / B L0 / C L1 / D L0+L1 / E 全开），`equal_compute()` 会
+**核对各组算力是否真的相等**（不相等则整轮实验作废）。判据是**超可加性**：
+`D > A` 且 `D > B` 且 `D > C`。
+
+判定带**证据地板** `MIN_MARGIN = 0.02`：D 比 A 高 0.01 不算证据——那正是
+本节要防的自欺（这个常数写明且可审计，不是随手调的阈值）。`D ≈ A` 会如实
+判 `no_evidence`：RSI 在此环境没买到东西，这是**负结果**，必须记录而非掩盖。
+P4: merging into Stage C (code ready). The first three levels are
+offline; P4 attaches the loop to a LIVE policy, where a bad update would
+replace the live policy, so the load-bearing parts change: canary
+promotion, no single metric may regress, the holdout delta must exceed a
+threshold, and long-run health (no degradation / no oscillation over >10
+cycles, plateau alarm). `homeo_lm.metaexp` runs the A-E control grid,
+verifies equal compute, and judges superadditivity with an explicit
+evidence floor (MIN_MARGIN) so a 0.01 edge cannot be declared a win.
 
 **P0 的硬前置**：当前探针被系统内存卡住（`OSError 1455`），需先释放内存
 或扩大页面文件。测量不跑起来，后面全是无根据的自我修改。
