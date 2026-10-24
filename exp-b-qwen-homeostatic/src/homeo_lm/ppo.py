@@ -73,6 +73,7 @@ import torch.nn.functional as F
 
 from homeo_rl.env import EnvConfig
 
+from .acthead import act_batch, action_token_ids
 from .gen_dpo_data import decide_gates, potential
 from .sft import DEFAULT_MODEL
 from .textenv import ACTION_WORDS, TextEnv, obs_messages
@@ -102,45 +103,9 @@ class EnvBatch:
         return out
 
 
-def action_token_ids(tok) -> List[int]:
-    """5 个动作词的首 token id。First-token id of each action word."""
-    ids = [tok.encode(w, add_special_tokens=False)[0] for w in ACTION_WORDS]
-    if len(set(ids)) != len(ids):
-        raise ValueError(
-            f"action words do not have distinct first tokens: "
-            f"{dict(zip(ACTION_WORDS, ids))} — the 5-action distribution "
-            f"would be ill-defined")
-    return ids
-
-
-@torch.no_grad()
-def act_batch(model, tok, prompts: Sequence[Sequence[int]], act_ids: Sequence[int],
-              device: str, greedy: bool = False) -> Tuple[torch.Tensor, torch.Tensor]:
-    """对一批观测给出动作分布（在 5 个动作 token 上重归一化）。
-    Action distribution over a batch of observations (renormalised over
-    the 5 action tokens). Returns (log_probs, entropy) per row."""
-    maxlen = max(len(p) for p in prompts)
-    ids, attn = [], []
-    for p in prompts:
-        pad = maxlen - len(p)
-        ids.append(list(p) + [tok.pad_token_id] * pad)
-        attn.append([1] * len(p) + [0] * pad)
-    ids_t = torch.tensor(ids, device=device)
-    attn_t = torch.tensor(attn, device=device)
-    out = model(input_ids=ids_t, attention_mask=attn_t)
-    # 末位（右填充，因此取 len-1）/ last real position (right padding)
-    last = torch.tensor([len(p) - 1 for p in prompts], device=device)
-    logits = out.logits[torch.arange(len(prompts), device=device), last]
-    sub = logits[:, list(act_ids)].float()        # [B, 5]
-    logp = F.log_softmax(sub, dim=-1)
-    if greedy:
-        probs = torch.zeros_like(logp)
-        probs.scatter_(1, logp.argmax(dim=1, keepdim=True), 1.0)
-    else:
-        probs = logp.exp()
-    dist = torch.distributions.Categorical(probs=probs)
-    actions = dist.sample()
-    return actions, dist.log_prob(actions), dist.entropy()
+# 行动头（首 token 分类）与探针共用同一份实现，见 acthead.py
+# The action head (first-token classification) is shared with the
+# probes — see acthead.py
 
 
 def compute_returns(rewards: Sequence[float], dones: Sequence[bool],

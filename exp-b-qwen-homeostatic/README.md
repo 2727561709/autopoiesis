@@ -185,6 +185,35 @@ DPO 回路本身工作正常。
 **判读重点**：`modulation_gap` 是否从 v2 的 **-1.0 转正**（> 0.5 达标）。
 这是 v3 成败的唯一分水岭。
 
+## RSI Phase 0：测量加速 + 控制器骨架（2026-10-25）
+
+完整设计见 [`docs/RSI-PLAN.md`](../../docs/RSI-PLAN.md)。已落地的部分：
+
+### 探针加速（RSI 的前提：测量必须够快）
+
+原来每个动作都走 `model.generate(max_new_tokens=4)`——**一次决策 4 次前向、
+逐条串行**。改成**批量首 token 分类**：动作只有一个词，5 个动作词首 token
+互不相同（`action_token_ids` 断言），所以"贪心解码一个动作"≡"5 个动作首
+token 上取 argmax"，批内**一次前向**出所有决策。存活探针 20 局并行推进。
+
+- 新增 `homeo_lm.acthead`（探针与 PPO 共用的行动头）：`act_batch`、
+  `greedy_with_legality`、`batch_logprobs`
+- **合法率信号保住了**：把决策限制在 5 个 token 上会让模型"永远合法"，
+  所以同时看**全词表 argmax**——落在 5 个动作 token 之外即判非法
+- 等价性可实测：`--verify-batching N` 对比批量路径与逐条 generate 的决策
+  一致率（< 0.99 则报 `BATCHING MISMATCH`，不得使用快路径）
+
+### `homeo_lm.rsi`（控制器骨架：只测量记账，不自动改）
+
+1. **种子三分** train / select / holdout（留出集冻结，不许对着同一套题练）
+2. **探针锁**：探针配置哈希进账本；哈希变了本轮采纳作废
+3. **显著性判定**：Δ 的 bootstrap 95% CI 整体 > 0 才算数，不是"看着涨了"
+4. **演进账本** `runs/rsi_ledger.jsonl`：每行记 `(tag, parent, change,
+   metrics, probe_hash, guardrails)`，可回溯可回滚
+5. **守卫**（本版只报告，不自动处置）：非法率超阈、调制 gap < 0（v2 失败模式）
+
+用法：`py -3.12 -m homeo_lm.rsi --ckpt runs/dpo-v3 --tag baseline-A`
+
 ## v4 路线：PPO（已实现，未训练）
 
 `homeo_lm.ppo` —— 让环境回报**直入策略**，彻底绕开行为克隆：

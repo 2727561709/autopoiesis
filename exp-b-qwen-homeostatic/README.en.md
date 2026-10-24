@@ -210,6 +210,45 @@ Run with: `py -3.12 -m homeo_lm.probe --ckpt runs/dpo-v3 --teacher ../exp-a-home
 **What to read**: whether `modulation_gap` flips from v2's **-1.0 to
 positive** (> 0.5 passes). That single number is v3's verdict.
 
+## RSI Phase 0: fast measurement + controller skeleton (2026-10-25)
+
+Full design in [`docs/RSI-PLAN.md`](../../docs/RSI-PLAN.md). What is
+built so far:
+
+### Probe speed-up (RSI's premise: measurement must be fast)
+
+Every action used to go through `model.generate(max_new_tokens=4)` —
+**4 forward passes per decision, one sample at a time**. Now it is
+**batched first-token classification**: the action is one word and the
+5 action words have distinct first tokens (asserted by
+`action_token_ids`), so "greedy-decode an action" == "argmax over the 5
+action first tokens" — ONE forward pass per batch. The survival probe
+advances all 20 episodes in parallel.
+
+- new `homeo_lm.acthead` (action head shared by probes and PPO):
+  `act_batch`, `greedy_with_legality`, `batch_logprobs`
+- **the illegal-rate signal survives**: restricting the decision to 5
+  tokens would make the model "always legal", so we also look at the
+  FULL-VOCAB argmax — anything outside the 5 action tokens is illegal
+- equivalence is testable: `--verify-batching N` compares the batched
+  path against per-sample `generate` (< 0.99 prints
+  `BATCHING MISMATCH` and the fast path must not be used)
+
+### `homeo_lm.rsi` (controller skeleton: measure + record only)
+
+1. **three-way seed split** train / select / holdout (frozen; no
+   drilling on the same exam)
+2. **probe lock**: the probe config hash goes into the ledger; if it
+   changes, this round's adoptions are void
+3. **significance**: the bootstrap 95% CI of Δ must be entirely > 0 —
+   not "looks higher"
+4. **evolution ledger** `runs/rsi_ledger.jsonl`: `(tag, parent, change,
+   metrics, probe_hash, guardrails)` per line — traceable, rollback-able
+5. **guardrails** (report-only in this version): illegal rate over
+   threshold, modulation gap < 0 (the v2 failure mode)
+
+Run: `py -3.12 -m homeo_lm.rsi --ckpt runs/dpo-v3 --tag baseline-A`
+
 ## v4 route: PPO (implemented, not yet trained)
 
 `homeo_lm.ppo` — the environment reward goes **straight into the
