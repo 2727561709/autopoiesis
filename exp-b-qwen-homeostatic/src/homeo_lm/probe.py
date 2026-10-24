@@ -254,7 +254,8 @@ def _energy_curve(student, tok, env_cfg: EnvConfig, device: str, trials: int,
 
 
 def modulation_probe(student, tok, env_cfg: EnvConfig, trials: int = 40,
-                     device: str = "cpu", batch_size: int = 32) -> Dict:
+                     device: str = "cpu", batch_size: int = 32,
+                     seed: int = 50_000) -> Dict:
     """核心探针：同样视野 + 不同身体状态 -> 动作分布差异。
     The core probe: same view + different body states -> how do the
     action distributions differ?
@@ -269,7 +270,8 @@ def modulation_probe(student, tok, env_cfg: EnvConfig, trials: int = 40,
     Batched: 2x trials states in one pass (was one generate per state).
     """
     rates = _energy_curve(student, tok, env_cfg, device, trials,
-                          (0.3, env_cfg.energy_setpoint), batch_size)
+                          (0.3, env_cfg.energy_setpoint), batch_size,
+                          seed=seed)
     hungry, satiated = rates[0.3], rates[env_cfg.energy_setpoint]
     return {"trials": trials,
             "hungry_toward_food": hungry,
@@ -280,6 +282,7 @@ def modulation_probe(student, tok, env_cfg: EnvConfig, trials: int = 40,
 # ------------------------------------------- 探针 3b：内感受剂量-反应曲线
 def modulation_sweep(student, tok, env_cfg: EnvConfig, trials: int = 20,
                      device: str = "cpu", batch_size: int = 32,
+                     seed: int = 50_000,
                      energies=(0.2, 0.4, 0.6, 0.8, 1.0)) -> Dict:
     """调制探针的剂量-反应版：扫一条能量梯度，看"朝食物"比例如何随
     内感受状态变化。
@@ -297,7 +300,7 @@ def modulation_sweep(student, tok, env_cfg: EnvConfig, trials: int = 20,
     the more it heads for food).
     """
     rates_by_e = _energy_curve(student, tok, env_cfg, device, trials,
-                               energies, batch_size)
+                               energies, batch_size, seed=seed)
     curve = {f"{e:.2f}": rates_by_e[e] for e in energies}
     rates = list(curve.values())
     # 能量升序下"朝食物"比例的斜率（>0 = 正确调制）
@@ -359,6 +362,11 @@ def main() -> None:
                          "default: run all)")
     ap.add_argument("--batch-size", type=int, default=32,
                     help="批量决策的批大小 / batched decision batch size")
+    ap.add_argument("--seed-offset", type=int, default=0,
+                    help="整体平移探针种子（显著性判定需要多次独立取样；"
+                         "同一 seed-offset 结果可复现）"
+                         " / shift probe seeds (significance needs several "
+                         "independent samples; same offset = reproducible)")
     ap.add_argument("--verify-batching", type=int, default=0, metavar="N",
                     help="在 N 个状态上对比\"批量首 token\"与\"逐条 generate\""
                          " 的决策一致率（批量加速的等价性校验）"
@@ -378,15 +386,20 @@ def main() -> None:
                          bs)
         return
 
+    off = args.seed_offset
     probes = {
         "agreement": lambda: agreement_probe(
-            student, tok, teacher, env_cfg, device=device, batch_size=bs),
+            student, tok, teacher, env_cfg, device=device, batch_size=bs,
+            seed=100 + off),
         "survival": lambda: survival_probe(
-            student, tok, env_cfg, device=device, batch_size=bs),
+            student, tok, env_cfg, device=device, batch_size=bs,
+            seed=9_000 + off),
         "modulation": lambda: modulation_probe(
-            student, tok, env_cfg, device=device, batch_size=bs),
+            student, tok, env_cfg, device=device, batch_size=bs,
+            seed=50_000 + off),
         "modulation-sweep": lambda: modulation_sweep(
-            student, tok, env_cfg, device=device, batch_size=bs),
+            student, tok, env_cfg, device=device, batch_size=bs,
+            seed=50_000 + off),
     }
     keys = [args.only] if args.only else list(probes)
     report = {"checkpoint": args.ckpt}

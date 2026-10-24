@@ -266,6 +266,29 @@ nothing (a trial means real training plus the full probe suite).
 
 Run: `py -3.12 -m homeo_lm.rsi --cycle --out runs/rsi_ledger.jsonl`
 
+### L1 self-generated training signal (2026-10-25, code ready)
+
+L0 tunes knobs; **L1 tunes the data itself**: the student walks the
+environment and we run the exhaustive contrast at the states where it is
+CURRENTLY wrong — pairs grow where the mistakes are, and the
+distribution moves with the policy (that is what separates iterated DPO
+from one-shot DPO).
+
+| Part | What it does |
+|---|---|
+| `gen_dpo_data --policy <adapter> --policy-frac 0.34` | a third data source: the student's OWN on-policy rollouts; `PolicyDriver` drives with acthead **sampling** (not greedy — greedy collapses trajectories onto a few deterministic routes and narrows coverage) |
+| `homeo_lm.selftrain` | one round = generate -> train -> several independent measurements -> decide -> record; only an **adopt** advances `current`, otherwise the parent is kept. Dry-run by default |
+| `probe --seed-offset` | independent samples for the significance test (same offset = reproducible) |
+| `ppo --probe-every N` | a light in-training modulation probe (the model is already in memory, so it is nearly free); trace goes to `probe_trace.json` |
+
+**Key engineering decision**: every L1 step runs in a **subprocess**;
+models are never stacked in one process. Generation loads the teacher,
+training loads policy+reference, measurement loads the student — two
+0.5B models in one process would blow up on this 4GB machine.
+
+Run: `py -3.12 -m homeo_lm.selftrain --start runs/dpo-v3 --rounds 3`
+(add `--run` to actually execute)
+
 ## v4 route: PPO (implemented, not yet trained)
 
 `homeo_lm.ppo` — the environment reward goes **straight into the

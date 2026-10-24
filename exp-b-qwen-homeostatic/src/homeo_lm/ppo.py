@@ -183,7 +183,7 @@ def train(ckpt: Optional[Path], out_dir: Path, model_name: str = DEFAULT_MODEL,
           entropy_coef: float = 0.01, shape_w: float = 0.05,
           shaping: bool = True, max_len: int = 512, device: str = "cuda",
           resume: bool = False, snapshot_every: int = 25,
-          seed: int = 0) -> Path:
+          seed: int = 0, probe_every: int = 0, probe_trials: int = 20) -> Path:
     """PPO 主循环。The PPO main loop."""
     from peft import LoraConfig, PeftModel, get_peft_model
     from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -230,6 +230,7 @@ def train(ckpt: Optional[Path], out_dir: Path, model_name: str = DEFAULT_MODEL,
     batch_env = EnvBatch(env_cfg, envs, seed=seed)
     rng = random.Random(seed)
     ep_seed = 10_000 + seed * 100
+    hist: List[Dict] = []          # 训练中的探针轨迹 / in-training probe trace
 
     for u in range(start_update, updates):
         prompts_all: List[List[int]] = []
@@ -303,6 +304,14 @@ def train(ckpt: Optional[Path], out_dir: Path, model_name: str = DEFAULT_MODEL,
                   f"{flag}", flush=True)
             print(f"   actions {share}", flush=True)
 
+        # 密集闭环：训练中定期插一次轻量探针（模型已在内存里，几乎免费）
+        # dense loop: a light probe during training (the model is already
+        # in memory, so it is nearly free)
+        if probe_every and ((u + 1) % probe_every == 0 or u == 0):
+            gap = _inline_probe(model, tok, env_cfg, device, probe_trials)
+            print(f"   probe modulation_gap {gap:+.3f}", flush=True)
+            hist.append({"update": u + 1, "modulation_gap": gap})
+
         if snapshot_every and (u + 1) % snapshot_every == 0:
             model.save_pretrained(out_dir)
             tok.save_pretrained(out_dir)
@@ -313,8 +322,22 @@ def train(ckpt: Optional[Path], out_dir: Path, model_name: str = DEFAULT_MODEL,
     model.eval()
     model.save_pretrained(out_dir)
     tok.save_pretrained(out_dir)
+    if hist:
+        (out_dir / "probe_trace.json").write_text(
+            json.dumps(hist, indent=2), encoding="utf-8")
     print(f"ppo adapter saved: {out_dir}")
     return out_dir
+
+
+@torch.no_grad()
+def _inline_probe(model, tok, env_cfg, device: str, trials: int) -> float:
+    """训练中的轻量调制探针（复用探针实现，模型已在内存里）。
+    A light in-training modulation probe (reuses the probe
+    implementation; the model is already in memory)."""
+    from .probe import modulation_probe
+    res = modulation_probe(model, tok, env_cfg, device=device,
+                           trials=trials)
+    return float(res.get("modulation_gap", float("nan")))
 
 
 def main() -> None:
@@ -339,6 +362,13 @@ def main() -> None:
                          "potential shaping (use the raw reward)")
     ap.add_argument("--resume", action="store_true")
     ap.add_argument("--snapshot-every", type=int, default=25)
+    ap.add_argument("--probe-every", type=int, default=0,
+                    help="每 N 次 update 插一次轻量调制探针（0=关闭）"
+                         " / run a light modulation probe every N updates "
+                         "(0 = off)")
+    ap.add_argument("--probe-trials", type=int, default=20,
+                    help="训练中探针的试验数（比正式探针小）"
+                         " / trials for the in-training probe")
     ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -348,7 +378,8 @@ def main() -> None:
           args.updates, args.envs, args.steps_per_update, args.lr, args.gamma,
           args.clip, args.entropy_coef, args.shape_w, not args.no_shaping,
           device=device, resume=args.resume,
-          snapshot_every=args.snapshot_every, seed=args.seed)
+          snapshot_every=args.snapshot_every, seed=args.seed,
+          probe_every=args.probe_every, probe_trials=args.probe_trials)
 
 
 if __name__ == "__main__":

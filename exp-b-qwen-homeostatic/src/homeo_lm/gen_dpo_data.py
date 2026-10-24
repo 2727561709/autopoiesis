@@ -164,10 +164,62 @@ def _teacher_action(model, env, prev_a: int, device: str) -> int:
     return int(a.item())
 
 
+class PolicyDriver:
+    """用**学生自己**驱动轨迹（L1 自产训练信号的关键）。
+    Drive the trajectory with the STUDENT itself (the crux of L1:
+    self-generated training signal).
+
+    v3 的偏好对来自教师/随机轨迹——数据分布是"别人走过的地方"。L1 改为
+    让学生自己走：它现在错在哪，对比数据就长在哪，偏好对分布随策略
+    一起移动（iterated DPO 的本质）。
+    v3's pairs come from teacher/random rollouts — the distribution of
+    states SOMEONE ELSE visited. L1 lets the student walk: the pairs
+    grow wherever it is currently wrong, so the pair distribution moves
+    with the policy (that is what iterated DPO means).
+
+    采样而非贪心：贪心会把轨迹压到几条确定性路线上，覆盖反而变窄。
+    Sampling, not greedy: greedy collapses trajectories onto a few
+    deterministic routes and narrows coverage.
+    """
+
+    def __init__(self, model, tok, device: str) -> None:
+        from .acthead import action_token_ids
+        self.model, self.tok, self.device = model, tok, device
+        self.act_ids = action_token_ids(tok)
+
+    def act(self, tenv) -> int:
+        from .acthead import act_batch
+        from .probe import prompt_ids
+        prompts = [prompt_ids(self.tok, tenv.env, tenv.prev_action)]
+        acts, _, _ = act_batch(self.model, self.tok, prompts, self.act_ids,
+                               self.device, greedy=False)
+        return int(acts[0])
+
+
+def load_policy(policy_dir: Path, device: str = "cpu"):
+    """载入学生策略（用于 on-policy 采样）。Load the student policy."""
+    from .probe import load_student
+    return load_student(Path(policy_dir), device)
+
+
+def source_shares(pairs: int, policy_frac: float) -> Dict[str, int]:
+    """各来源的配额。Per-source quotas.
+
+    有 policy 时：policy 占 policy_frac，其余教师/随机对半。
+    With a policy: policy takes policy_frac, the rest splits evenly.
+    """
+    pol = int(round(pairs * policy_frac)) if policy_frac > 0 else 0
+    rest = max(0, pairs - pol)
+    return {"teacher": rest // 2 + (rest % 2), "random": rest // 2,
+            "policy": pol}
+
+
 def generate(ckpt_path: Path, out_path: Path, pairs: int = 4000,
              min_gap: float = 0.008, shape_w: float = 0.05,
              gate_margin: float = 0.05, max_steps: int = 400,
-             seed: int = 0, device: str = "cpu") -> dict:
+             seed: int = 0, device: str = "cpu",
+             policy_dir: Optional[Path] = None,
+             policy_frac: float = 0.34) -> dict:
     """生成 DPO 偏好对 jsonl。Generate the DPO preference-pair jsonl.
 
     每行格式（与 SFT 数据同构，chosen/rejected 是 assistant 回复）：
@@ -182,71 +234,62 @@ def generate(ckpt_path: Path, out_path: Path, pairs: int = 4000,
     tenv = TextEnv(env_cfg)
     rng = random.Random(seed)
     rows: List[dict] = []
-    stats = {"teacher_states": 0, "random_states": 0, "dropped_ties": 0}
+    stats = {"teacher_states": 0, "random_states": 0, "policy_states": 0,
+             "dropped_ties": 0}
 
-    per_source = pairs // 2 + 1
-    # ---- 来源 1：教师轨迹 / source 1: teacher rollouts ----
-    ep = 0
-    while stats["teacher_states"] < per_source:
-        tenv.reset(seed=seed * 10_000 + ep)
-        prev_a = NONE_ACTION
-        stride = max(1, 400 // 40)  # 每局最多采样 ~40 个状态
-        t_idx = 0
-        for t in range(max_steps):
-            if t_idx % stride == 0 and stats["teacher_states"] < per_source:
-                ks = rank_actions_at_state(tenv, shape_w, gate_margin)["keys"]
-                c, r_ = int(np.argmax(ks)), int(np.argmin(ks))
-                if ks[c] - ks[r_] >= min_gap:
-                    msgs = obs_messages(tenv.env, tenv.prev_action)
-                    rows.append({
-                        "messages": msgs,
-                        "chosen": ACTION_WORDS[c],
-                        "rejected": ACTION_WORDS[r_],
-                        "meta": {"ep": ep, "t": t, "src": "teacher",
-                                 "keys": [round(x, 4) for x in ks]},
-                    })
-                    stats["teacher_states"] += 1
-                else:
-                    stats["dropped_ties"] += 1
-            # 教师推进 / the teacher drives the trajectory
-            a = _teacher_action(model, tenv.env, prev_a, device)
-            _, _, done, _ = tenv.step(ACTION_WORDS[a])
-            prev_a = a
-            t_idx += 1
-            if done:
-                break
-        ep += 1
+    shares = source_shares(pairs, policy_frac if policy_dir else 0.0)
+    driver = None
+    if policy_dir:
+        pol_model, pol_tok, pol_dev = load_policy(Path(policy_dir), device)
+        driver = PolicyDriver(pol_model, pol_tok, pol_dev)
 
-    # ---- 来源 2：随机轨迹 / source 2: random rollouts ----
-    ep = 0
-    while stats["random_states"] < per_source:
-        tenv.reset(seed=1_000_000 + seed * 10_000 + ep)
-        prev_a = NONE_ACTION
-        stride = max(1, 400 // 40)
-        t_idx = 0
-        for t in range(max_steps):
-            if t_idx % stride == 0 and stats["random_states"] < per_source:
-                ks = rank_actions_at_state(tenv, shape_w, gate_margin)["keys"]
-                c, r_ = int(np.argmax(ks)), int(np.argmin(ks))
-                if ks[c] - ks[r_] >= min_gap:
-                    msgs = obs_messages(tenv.env, tenv.prev_action)
-                    rows.append({
-                        "messages": msgs,
-                        "chosen": ACTION_WORDS[c],
-                        "rejected": ACTION_WORDS[r_],
-                        "meta": {"ep": ep, "t": t, "src": "random",
-                                 "keys": [round(x, 4) for x in ks]},
-                    })
-                    stats["random_states"] += 1
+    def _collect(src: str, quota: int, seed_base: int) -> None:
+        """按来源采集状态（三段采集逻辑完全一致，只是驱动不同）。
+        Collect states for one source (the three sources differ only in
+        their driver)."""
+        if quota <= 0:
+            return
+        key = f"{src}_states"
+        stride = max(1, max_steps // 40)  # 每局最多采样 ~40 个状态
+        ep = 0
+        while stats[key] < quota:
+            tenv.reset(seed=seed_base + ep)
+            prev_a = NONE_ACTION
+            t_idx = 0
+            for t in range(max_steps):
+                if t_idx % stride == 0 and stats[key] < quota:
+                    ks = rank_actions_at_state(tenv, shape_w,
+                                               gate_margin)["keys"]
+                    c, r_ = int(np.argmax(ks)), int(np.argmin(ks))
+                    if ks[c] - ks[r_] >= min_gap:
+                        msgs = obs_messages(tenv.env, tenv.prev_action)
+                        rows.append({
+                            "messages": msgs,
+                            "chosen": ACTION_WORDS[c],
+                            "rejected": ACTION_WORDS[r_],
+                            "meta": {"ep": ep, "t": t, "src": src,
+                                     "keys": [round(x, 4) for x in ks]},
+                        })
+                        stats[key] += 1
+                    else:
+                        stats["dropped_ties"] += 1
+                if src == "teacher":
+                    a = _teacher_action(model, tenv.env, prev_a, device)
+                elif src == "policy":
+                    a = driver.act(tenv)
                 else:
-                    stats["dropped_ties"] += 1
-            a = rng.randrange(N_ACTIONS)  # 随机推进 / random walk
-            _, _, done, _ = tenv.step(ACTION_WORDS[a])
-            prev_a = a
-            t_idx += 1
-            if done:
-                break
-        ep += 1
+                    a = rng.randrange(N_ACTIONS)   # 随机推进 / random walk
+                _, _, done, _ = tenv.step(ACTION_WORDS[a])
+                prev_a = a
+                t_idx += 1
+                if done:
+                    break
+            ep += 1
+
+    _collect("teacher", shares["teacher"], seed * 10_000)
+    _collect("random", shares["random"], 1_000_000 + seed * 10_000)
+    if driver is not None:
+        _collect("policy", shares["policy"], 2_000_000 + seed * 10_000)
 
     rng.shuffle(rows)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -271,11 +314,24 @@ def main() -> None:
                          "0.008 保留饱腹 rest 对——修复 v2 反向调制的关键）")
     ap.add_argument("--shape-w", type=float, default=0.05,
                     help="势函数整形权重 / potential-shaping weight")
+    ap.add_argument("--gate-margin", type=float, default=0.05,
+                    help="内感受门控阈值 / interoceptive gate margin")
+    ap.add_argument("--policy", type=str, default=None,
+                    help="学生适配器目录：用**学生自己**跑一部分轨迹"
+                         "（L1 自产训练信号）"
+                         " / student adapter dir: let the STUDENT drive "
+                         "part of the rollouts (L1 self-generated signal)")
+    ap.add_argument("--policy-frac", type=float, default=0.34,
+                    help="on-policy 状态的占比（其余教师/随机对半）"
+                         " / share of on-policy states")
     ap.add_argument("--out", type=str, default="data/dpo_pairs.jsonl")
     ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()
     generate(Path(args.teacher), Path(args.out), pairs=args.pairs,
-             min_gap=args.min_gap, shape_w=args.shape_w, seed=args.seed)
+             min_gap=args.min_gap, shape_w=args.shape_w,
+             gate_margin=args.gate_margin, seed=args.seed,
+             policy_dir=Path(args.policy) if args.policy else None,
+             policy_frac=args.policy_frac)
 
 
 if __name__ == "__main__":

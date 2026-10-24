@@ -142,6 +142,28 @@ own current mistakes:
 每次更新后跑 **fast probe**（见 Phase 0），形成"改进—验证"的密集闭环。
 Iterated DPO 的每一轮都要重新生成偏好对（否则退化为普通 DPO）。
 
+**P2 已实现**：
+- `gen_dpo_data --policy <适配器> --policy-frac 0.34`：新增第三条数据来源
+  ——**学生自己的 on-policy 轨迹**（`PolicyDriver` 用 acthead 采样驱动，
+  不做贪心：贪心会把轨迹压到几条确定性路线上、覆盖反而变窄）。三段采集
+  逻辑合并成一个 `_collect`，只有驱动不同。
+- `homeo_lm.selftrain`：L1 编排器，**每步都用子进程**跑（生成要载教师、
+  训练要载策略+参考、测量要载学生——同一进程叠两份 0.5B 模型在这台机器上
+  必炸）。一轮 = 生成 → 训练 → 多次独立测量 → `decide` → 记账；采纳才
+  推进 `current`，否则保留 parent。默认 **dry-run**。
+- `probe --seed-offset`：显著性判定需要多个独立取样（同一 offset 可复现）。
+- `ppo --probe-every N`：训练中定期插轻量调制探针（模型已在内存里，几乎
+  免费），轨迹写入 `probe_trace.json`——RL 的"存活率/调制随训练变化"曲线
+  因此可见。
+P2 implemented: `gen_dpo_data --policy/--policy-frac` adds a third data
+source — the student's OWN on-policy rollouts (`PolicyDriver` samples
+via acthead; not greedy, because greedy collapses trajectories onto a
+few deterministic routes). `homeo_lm.selftrain` orchestrates L1 in
+subprocesses (generation loads the teacher, training loads policy+ref,
+measurement loads the student — two 0.5B models in one process would
+blow up here). `probe --seed-offset` gives independent samples for
+significance. `ppo --probe-every N` runs a light in-training probe.
+
 ### L2：改学习规则（Phase 3，需 M17）
 
 到这一层才允许改动"怎么学"，且必须：
@@ -201,7 +223,7 @@ RSI 在这个环境里买不到任何东西——**这也是有价值的结果�
 |---|---|---|---|
 | **P0 测量** | 快速探针（批量生成、多种子、CI）、探针套扩展（steps_to_food、世界模型精度、驱动平衡）、种子三分 | `probe` 加速 + `probe_suite.py` + 种子管理 | 全套探针 **< 3 分钟**、可重复（同 seed 同结果） |
 | **P1 L0** ✅ 代码已就绪（2026-10-25） | 旋钮空间定义 + UCB bandit + 门控 + 账本 + 回滚 | `rsi.py`、`rsi_l0.py` | 在固定预算下 `B ≥ A`；无熔断触发 |
-| **P2 L1** | on-policy 偏好对 + PPO 密集闭环 | `gen_dpo_data --policy`、PPO 每 update 轻探针 | 调制的**改进速度**快于基线（而非最终值） |
+| **P2 L1** ✅ 代码已就绪（2026-10-25） | on-policy 偏好对 + PPO 密集闭环 | `gen_dpo_data --policy`、`selftrain.py`、PPO `--probe-every` | 调制的**改进速度**快于基线（而非最终值） |
 | **P3 L2** | M17 元认知假设生成 + L2 旋钮 + 反振荡 | `cog-metacognition` 模块 | 至少一条假设被**证伪**并留下负结果记录 |
 | **P4** | 并入 Stage C：训练与部署合一，在线终身改进 | 在线循环 | 长期（>10 周期）无退化、无振荡 |
 

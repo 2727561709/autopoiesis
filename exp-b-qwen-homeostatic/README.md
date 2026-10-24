@@ -230,6 +230,25 @@ token 上取 argmax"，批内**一次前向**出所有决策。存活探针 20 �
 
 用法：`py -3.12 -m homeo_lm.rsi --cycle --out runs/rsi_ledger.jsonl`
 
+### L1 自产训练信号（2026-10-25，代码就绪）
+
+L0 调旋钮，**L1 调数据本身**：让学生自己走进环境，在它**当前会犯错的
+状态**上做穷举对比——偏好对长在错误发生的地方，分布随策略一起移动
+（iterated DPO 与"一次性 DPO"的区别）。
+
+| 部件 | 说明 |
+|---|---|
+| `gen_dpo_data --policy <适配器> --policy-frac 0.34` | 第三条数据来源：**学生自己的 on-policy 轨迹**；`PolicyDriver` 用 acthead **采样**驱动（不贪心——贪心会把轨迹压到几条确定性路线上，覆盖反而变窄） |
+| `homeo_lm.selftrain` | 一轮 = 生成 → 训练 → 多次独立测量 → 判定 → 记账；**采纳**才推进 `current`，否则保留 parent。默认 dry-run |
+| `probe --seed-offset` | 显著性判定需要多个独立取样（同一 offset 可复现） |
+| `ppo --probe-every N` | 训练中定期插轻量调制探针（模型已在内存，几乎免费），轨迹写 `probe_trace.json` |
+
+**关键工程决策**：L1 每一步都用**子进程**跑，不在同一进程里叠模型——
+生成要载教师、训练要载策略+参考、测量要载学生，两个 0.5B 模型同进程在这台
+4GB 机器上必炸。
+
+用法：`py -3.12 -m homeo_lm.selftrain --start runs/dpo-v3 --rounds 3`（加 `--run` 才真跑）
+
 ## v4 路线：PPO（已实现，未训练）
 
 `homeo_lm.ppo` —— 让环境回报**直入策略**，彻底绕开行为克隆：
