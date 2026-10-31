@@ -304,6 +304,57 @@ A–E 五组（A 对照 / B L0 / C L1 / D L0+L1 / E 全开），`equal_compute()
 
 用法：`py -3.12 -m homeo_lm.metaexp --groups ABCDE`
 
+### 智能体 Harness（2026-11-01）：统一的批量推进层 + 轨迹
+
+之前探针、PPO、L1 各写各的推进循环——三份几乎相同的代码，三个可以
+各自漂移的地方：探针里改了观测格式、PPO 里没跟上，测出来的就不是同一个
+策略。`homeo_lm.runner.BatchRunner` 把它们收成**一份**。
+
+两条硬约束：
+
+1. **必须批量**：一次决策 = 一次前向（首 token 分类）。串行推进会把 Phase 0
+   拿到的约 200× 加速全还回去
+2. **已结束的局不再前向**：每步只对还活着的局组批
+
+`driver` 是参数（学生 / 教师 / 随机），因为**"on-policy 数据"和"教学数据"
+的差别就在这一个选择上**。
+
+```python
+runner = BatchRunner(model, tok, device, greedy=True)
+traces = runner.rollout(env_cfg, episodes=20, seed=9_000)
+BatchRunner.summary(traces)      # 存活率 / 平均步数 / 非法率
+```
+
+### 评测 Harness（2026-11-01）：可配置的算例套件
+
+探针散在 `probe.py` 里，换参数就改命令行；更糟的是**判定口径会漂**——这次
+说 gap>0.5 算过，下次只看"是不是正的"。
+
+一个算例 = 一次可复现评测（名字 + 探针 + 种子 + 样本量 + 门槛）：
+
+```python
+Case(name="modulation-main", probe="modulation", seed=50_000, samples=3,
+     thresholds={"modulation_gap": (">=", 0.5)})
+```
+
+套件跑完给出**基线 vs 候选的对比表** + **逐算例门槛判定**。缺失指标 =
+不知道 = **判不过**（不许把"没测"当"测过了没问题"）。
+
+用法：`py -3.12 -m homeo_lm.evalsuite --base runs/sft-lora-v2 --cand runs/dpo-v3`
+
+### 测试 Harness（2026-11-01）：不依赖 GPU 的假件
+
+之前新模块只能测"纯逻辑"（门控、账本、计划器）——一旦要测**真走一遍前向**
+的代码就得载 0.5B 模型，而那正是这台机器最卡的地方。**结果是最容易出错
+的代码反而测不到。**
+
+`tests/fakes.py` 给出最小假件：几十参数的因果模型 + 假分词器，满足
+`acthead` 的接口，CPU 毫秒级。`tests/conftest.py` 把它们挂成 fixture
+（`student` / `tok` / `env_cfg` / `ledger`）。
+
+它测的是**接线**（批量形状、动作是否落在 5 个里、结束的局是否不再进批），
+**不测模型质量**——那是真模型的活。
+
 ### 实验 Harness（2026-11-01）：一条命令跑完 A–E × 多 seed 网格
 
 四层闭环各自都跑得通，但**没有一层回答过这个问题**：

@@ -357,6 +357,52 @@ must be recorded, not hidden**.
 
 Run: `py -3.12 -m homeo_lm.metaexp --groups ABCDE`
 
+### Agent harness (2026-11-01): one shared batched rollout layer + traces
+
+Probes, PPO and L1 each had their own rollout loop — three near-identical
+copies, three places to drift apart: change the observation format in the
+probe, forget it in PPO, and what you measure is no longer the policy you
+trained. `homeo_lm.runner.BatchRunner` collapses them into ONE.
+
+Two hard constraints:
+1. it must be BATCHED — one decision = one forward pass (first-token
+   classification). Serial rollouts would hand back the ~200x speed-up
+   won in Phase 0
+2. finished episodes get no further forward passes — each step batches
+   only the still-alive ones
+
+`driver` is a parameter (student / teacher / random) because the
+difference between on-policy data and teaching data IS that one choice.
+
+### Eval harness (2026-11-01): a configurable suite of cases
+
+The probes lived inside `probe.py`, so changing parameters meant new
+command lines; worse, the VERDICT CRITERION DRIFTS — one run says gap >
+0.5 passes, the next only asks whether it is positive.
+
+A case is one reproducible evaluation (name + probe + seed + samples +
+thresholds), and the suite returns a BASE vs CANDIDATE comparison table
+plus a per-case threshold verdict. A missing metric is UNKNOWN and
+FAILS — "not measured" is never "measured and fine".
+
+Run: `py -3.12 -m homeo_lm.evalsuite --base runs/sft-lora-v2 --cand runs/dpo-v3`
+
+### Test harness (2026-11-01): fakes that need no GPU
+
+New modules could previously be tested for pure logic only (gates,
+ledgers, planners). Anything that really runs a forward pass needed a
+0.5B model — exactly what this machine struggles with. The consequence:
+the code most likely to break was the code least likely to be tested.
+
+`tests/fakes.py` provides minimal fakes: a few-dozen-parameter causal
+model plus a fake tokenizer, matching the interfaces `acthead` uses,
+running in milliseconds on CPU. `tests/conftest.py` wires them up as
+fixtures (`student` / `tok` / `env_cfg` / `ledger`).
+
+They test the WIRING (batch shapes, actions inside the 5, finished
+episodes leaving the batch) — NOT model quality, which is the real
+model's job.
+
 ### Experiment harness (2026-11-01): the A-E grid x seeds in one command
 
 All four loops work, but **not one of them answers this question**:

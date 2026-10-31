@@ -184,42 +184,22 @@ def survival_probe(student, tok, env_cfg: EnvConfig, episodes: int = 20,
     """学生自主行动的存活率 + 非法输出率。
     The student acting on its own: survival + illegal-output rates.
 
-    加速：所有回合**并行**推进——每一步把所有还活着的观测合成一个
-    batch，一次前向决定所有动作（原来是逐局逐条 generate）。
-    Speed-up: all episodes advance IN PARALLEL — each step batches the
-    observations of every still-alive episode into one forward pass
-    (instead of one `generate` per episode per step).
+    推进逻辑复用 `BatchRunner`（探针/PPO/L1 共用一份），保持**批量并行**：
+    每一步只对还活着的局做一次前向；跑完的局不再进批。
+    The rollout delegates to `BatchRunner` (shared by probes / PPO / L1),
+    staying BATCHED and parallel: each step runs one forward pass over
+    the still-alive episodes only; finished ones leave the batch.
     """
-    act_ids = action_token_ids(tok)
-    envs = [TextEnv(env_cfg) for _ in range(episodes)]
-    for i, e in enumerate(envs):
-        e.reset(seed=seed + i)
-    alive = [True] * episodes
-    lens = [0] * episodes
-    died = [False] * episodes
-    illegal = 0
-    total_steps = 0
-    while any(alive):
-        idx = [i for i, a in enumerate(alive) if a]
-        prompts = [prompt_ids(tok, envs[i].env, envs[i].prev_action)
-                   for i in idx]
-        acts, legals = greedy_with_legality(student, tok, prompts, act_ids,
-                                            device, batch_size)
-        for i, a, lg in zip(idx, acts, legals):
-            if not lg:
-                illegal += 1
-            _, _, done, info = envs[i].step(ACTION_WORDS[a])
-            lens[i] += 1
-            total_steps += 1
-            if done:
-                alive[i] = False
-                died[i] = bool(info.get("died"))
-            elif lens[i] >= env_cfg.max_steps:
-                alive[i] = False
-    return {"episodes": episodes,
-            "survival_rate": float(np.mean([not d for d in died])),
-            "mean_steps": float(np.mean(lens)),
-            "illegal_rate": illegal / max(1, total_steps)}
+    runner = BatchRunner(student, tok, device=device, greedy=True,
+                         batch_size=batch_size)
+    traces = runner.rollout(env_cfg, episodes=episodes, seed=seed)
+    return {
+        "episodes": episodes,
+        "survival_rate": float(np.mean([t.survived for t in traces])),
+        "mean_steps": float(np.mean([t.length for t in traces])),
+        "illegal_rate": (sum(t.illegal for t in traces)
+                         / max(1, sum(t.length for t in traces))),
+    }
 
 
 # ------------------------------------------------------- 探针 3：内感受调制 ★
