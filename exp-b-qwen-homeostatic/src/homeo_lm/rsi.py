@@ -31,6 +31,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
+import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence
@@ -323,9 +326,155 @@ def _run_cycle(args) -> None:
                        "change": plan["proposal"]["change"],
                        "probe_hash": ph, "commands": cmds})
         return
-    # 真跑：训练 → 测量 → 判定 → 记账
-    # real run: train -> measure -> decide -> record
-    raise SystemExit("trial execution is not wired yet (P1 hardening)")
+    # 真跑：训练 → 多次独立测量 → 判定 → 记账
+    # real run: train -> several independent measurements -> decide ->
+    # record
+    result = run_trial(args, plan, ph)
+    print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+    if result.get("verdict") == "adopt":
+        print(f"ADOPT {result['change']} -> {result['ckpt']}")
+    else:
+        print(f"{str(result.get('verdict')).upper()} — 保留 parent"
+              " / keeping the parent")
+
+
+# ------------------------------------------------------------ 真跑：一次试验
+def trial_dir(out_root: Path, change: Dict, tag: str = "trial") -> Path:
+    """试验产物目录（名字里带上改动值，便于回溯）。
+    Trial output dir (the change is in the name, so it is traceable)."""
+    key = "-".join(f"{k}{v}" for k, v in sorted((change or {}).items()))
+    safe = re.sub(r"[^0-9A-Za-z=._-]", "_", key) or "base"
+    return Path(out_root) / "rsi-trials" / f"{tag}-{safe}"
+
+
+def trial_commands(change: Dict, out_root: Path, teacher: str,
+                   ref_ckpt: str = "runs/sft-lora-v2", tag: str = "trial",
+                   pairs: int = 4000, epochs: int = 1) -> Dict:
+    """一次试验的命令序列：重新生成数据 → 从**同一个 parent** 训练。
+    Command sequence for one trial: regenerate the data -> train from
+    the SAME parent.
+
+    从同一个 parent 出发是关键：否则"这个旋钮好不好"和"起点不同"混在一起，
+    无法归因（metaexp 的同等算力/同等起点要求也在此落实）。
+    Starting from the same parent is essential, otherwise 'is this knob
+    good?' is confounded with 'was the starting point different?' — no
+    attribution. This is also where the meta-experiment's equal-start
+    requirement is enforced.
+    """
+    from .rsi_l0 import knob_to_args
+
+    d = trial_dir(out_root, change, tag)
+    staged = knob_to_args(change)
+    gen = [sys.executable, "-m", "homeo_lm.gen_dpo_data",
+           "--teacher", teacher,
+           "--pairs", str(pairs),
+           "--out", str(d / "pairs.jsonl")]
+    gen += staged.get("dpo_pairs", [])
+    train = [sys.executable, "-m", "homeo_lm.dpo",
+             "--data", str(d / "pairs.jsonl"),
+             "--ref", ref_ckpt,
+             "--out", str(d / "adapter"),
+             "--epochs", str(epochs)]
+    train += staged.get("ppo", [])
+    return {"dir": str(d), "ckpt": str(d / "adapter"),
+            "commands": {"gen": gen, "train": train},
+            "unmapped": {k: v for k, v in (change or {}).items()
+                         if not staged}}
+
+
+def guardrails_from_report(report: Dict) -> bool:
+    """候选是否过守卫（只看环境侧信号，不看模型自评）。
+    Does the candidate pass the guardrails (environment-side signals
+    only, never the model's own judgement)."""
+    surv = (report.get("survival") or {}).get("illegal_rate", 0.0) or 0.0
+    agree = (report.get("agreement") or {}).get("illegal_rate", 0.0) or 0.0
+    return max(float(surv), float(agree)) <= 0.20
+
+
+def measure_ckpt(ckpt: Path, teacher: str, samples: int = 3,
+                 device: Optional[str] = None) -> List[float]:
+    """对一个 checkpoint 做 `samples` 次**独立**测量（不同 seed-offset）。
+    Take `samples` INDEPENDENT measurements of a checkpoint (different
+    seed offsets).
+
+    显著性判定要的是独立取样：同一 seed 跑 N 次得到的是同一个数，那不是
+    N 个样本。每次测量都用子进程——探针要载模型，一次一清最稳。
+    Significance needs independent samples: running the same seed N
+    times yields the same number, which is not N samples. Each
+    measurement runs in a subprocess so the model is loaded cleanly.
+    """
+    from .selftrain import composite_score, metrics_from_report, \
+        read_probe_report
+
+    scores: List[float] = []
+    for i in range(max(1, samples)):
+        cmd = [sys.executable, "-m", "homeo_lm.probe",
+               "--ckpt", str(ckpt), "--teacher", teacher,
+               "--seed-offset", str(1_000 * (i + 1))]
+        if device:
+            cmd += ["--device", device]
+        print("$", " ".join(cmd), flush=True)
+        subprocess.run(cmd, check=True)
+        rep = read_probe_report(Path(ckpt))
+        scores.append(composite_score(metrics_from_report(rep)))
+    return scores
+
+
+def run_trial(args, plan: Dict, probe_hash_value: str) -> Dict:
+    """跑一次 L0 试验并记账（不自动晋升——晋升由 P4 的金丝雀决定）。
+    Run one L0 trial and record it (no auto-promotion: promotion is the
+    P4 canary's job)."""
+    from .rsi_l0 import decide
+
+    change = plan["proposal"]["change"]
+    tc = trial_commands(change, Path(args.out).parent, args.teacher,
+                        ref_ckpt=args.ref, tag=args.tag)
+    out_dir = Path(tc["dir"])
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for stage in ("gen", "train"):
+        cmd = tc["commands"][stage]
+        print("$", " ".join(cmd), flush=True)
+        subprocess.run(cmd, check=True)
+
+    cand_scores = measure_ckpt(Path(tc["ckpt"]), args.teacher,
+                               samples=args.samples, device=args.device)
+    # parent 也重新测：用同一批 seed-offset 做配对比较，且不许拿历史数字
+    # 当对照（探针配置可能已变）
+    # the parent is re-measured with the same offsets (paired comparison);
+    # historical numbers may not be reused as the control, because the
+    # probe config may have changed
+    par_scores = (measure_ckpt(Path(args.ckpt), args.teacher,
+                               samples=args.samples, device=args.device)
+                  if args.measure_parent else [])
+    rep = json.loads((Path(tc["ckpt"]) / "probe_report.json").read_text(
+        encoding="utf-8")) if (Path(tc["ckpt"]) /
+                               "probe_report.json").exists() else {}
+    guards_ok = guardrails_from_report(rep)
+    verdict = decide(par_scores or cand_scores, cand_scores,
+                     guardrails_ok=guards_ok)
+    entry = ledger_append(args.out, {
+        "tag": args.tag,
+        "verdict": verdict["verdict"],
+        "change": change,
+        "ckpt": tc["ckpt"],
+        "parent": args.ckpt,
+        "probe_hash": probe_hash_value,
+        "scores": {"parent": par_scores, "candidate": cand_scores},
+        "metrics": metrics_from_report_safe(rep),
+        "guardrails_ok": guards_ok,
+    })
+    return {**entry, "change": change, "ckpt": tc["ckpt"]}
+
+
+def metrics_from_report_safe(report: Dict) -> Dict:
+    """从探针报告取指标（报告缺失时给空字典，不抛错）。
+    Metrics from the probe report (empty dict if missing, never raises)."""
+    from .selftrain import metrics_from_report
+    return metrics_from_report(report) if report else {}
+
+
+def ledger_append(out_path: str, entry: Dict) -> Dict:
+    return Ledger(Path(out_path)).append(entry)
 
 
 def main() -> None:
@@ -358,6 +507,19 @@ def main() -> None:
                          "(default: all L0 knobs)")
     ap.add_argument("--max-trials", type=int, default=5,
                     help="每周期试验上限 / trials per cycle")
+    ap.add_argument("--ref", type=str, default="runs/sft-lora-v2",
+                    help="试验的训练起点（**所有试验必须同起点**，否则无法"
+                         "归因）/ training start for trials (every trial "
+                         "must start from the same place, or there is no "
+                         "attribution)")
+    ap.add_argument("--samples", type=int, default=3,
+                    help="每版独立测量次数（显著性判定需要 ≥2）"
+                         " / independent measurements per version "
+                         "(significance needs >= 2)")
+    ap.add_argument("--measure-parent", action="store_true",
+                    help="同时重测 parent（配对比较；默认只测候选，省算力）"
+                         " / also re-measure the parent (paired "
+                         "comparison; default measures the candidate only)")
     ap.add_argument("--level", type=int, default=0, choices=[0, 1, 2],
                     help="自我改进层级：0 调旋钮 / 1 调数据 / 2 调学习规则"
                          " / improvement level: 0 knobs, 1 data, "
