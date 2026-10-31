@@ -304,6 +304,20 @@ A–E 五组（A 对照 / B L0 / C L1 / D L0+L1 / E 全开），`equal_compute()
 
 用法：`py -3.12 -m homeo_lm.metaexp --groups ABCDE`
 
+## 真跑流水线：`scripts/`（2026-11-01）
+
+RSI 四层代码都已就绪但**全是 dry-run**。真跑之前有硬性顺序，脚本按此
+排列（任一步失败即停，见 `scripts/run_all.ps1`）：
+
+| 步骤 | 脚本 | 为什么必须按这个顺序 |
+|---|---|---|
+| 1 | `01_verify_batching.ps1` | 证明"批量快路径"≡"逐条 generate"。**不过这一关，后面所有数字都作废** |
+| 2 | `02_probe_v3.ps1` | 全面测量 v3：`modulation_gap` 是否从 v2 的 -1.0 转正（>0.5 才通过） |
+| 3 | `03_baseline_A.ps1` | 把测量写进账本，作为**对照组 A 的零点**——没有零点，"改进了多少"就是空的 |
+
+一键：`powershell -ExecutionPolicy Bypass -File scripts\run_all.ps1`
+单步（内存紧张时）：直接跑对应脚本，支持 `-Ckpt runs\xxx`。
+
 ## v4 路线：PPO（已实现，未训练）
 
 `homeo_lm.ppo` —— 让环境回报**直入策略**，彻底绕开行为克隆：

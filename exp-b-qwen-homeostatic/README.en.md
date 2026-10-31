@@ -357,6 +357,22 @@ must be recorded, not hidden**.
 
 Run: `py -3.12 -m homeo_lm.metaexp --groups ABCDE`
 
+## The real-run pipeline: `scripts/` (2026-11-01)
+
+All four RSI levels are code-complete but **entirely dry-run**. Running
+them for real has a mandatory order, and the scripts enforce it (any
+step failing stops the chain — see `scripts/run_all.ps1`):
+
+| Step | Script | Why this order |
+|---|---|---|
+| 1 | `01_verify_batching.ps1` | prove the batched fast path == per-sample `generate`. **Fail this and every later number is void** |
+| 2 | `02_probe_v3.ps1` | full measurement of v3: has `modulation_gap` flipped from v2's -1.0 to positive (> 0.5 to pass)? |
+| 3 | `03_baseline_A.ps1` | record the measurement in the ledger as **the zero point of control group A** — without it, "improved by how much" is empty |
+
+One shot: `powershell -ExecutionPolicy Bypass -File scripts\run_all.ps1`
+Step by step (when memory is tight): run the script directly; all accept
+`-Ckpt runs\xxx`.
+
 ## v4 route: PPO (implemented, not yet trained)
 
 `homeo_lm.ppo` — the environment reward goes **straight into the
