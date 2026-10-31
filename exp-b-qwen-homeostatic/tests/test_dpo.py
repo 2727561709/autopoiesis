@@ -24,7 +24,12 @@ def test_neutral_pairs_give_log_two():
     loss, m = dpo_loss(pol_c, pol_r, ref_c, ref_r, beta=0.1)
     assert torch.allclose(loss, torch.log(torch.tensor(2.0)), atol=1e-6)
     assert m["margin"] == 0.0
-    assert m["acc"] == 0.5   # margin > 0 的比例（等于 0 时算不中）
+    # 平局（margin == 0）算**不中**：无偏好即无证据。
+    # 写 0.5 是错的——那等于把"没偏好"当成了半票偏好。
+    # A tie (margin == 0) does NOT count as a hit: no preference means no
+    # evidence. 0.5 would be wrong — it would count indifference as half
+    # a vote for the chosen reply.
+    assert m["acc"] == 0.0
 
 
 def test_preferring_chosen_lowers_loss():

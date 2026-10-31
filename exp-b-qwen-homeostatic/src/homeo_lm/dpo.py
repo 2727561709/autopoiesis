@@ -119,6 +119,14 @@ def dpo_loss(pol_c, pol_r, ref_c, ref_r, beta: float):
         rewards_margin = β·[(Δc) - (Δr)]，>0 表示策略偏向 chosen
         rewards_margin = β·[(Δc) - (Δr)]; >0 means the policy prefers
         the chosen reply.
+
+    acc 的口径（写死在这里，免得各人各解）：只有 **margin > 0 严格成立**
+    才算命中。margin == 0 是"分不出"，算不中——因为偏好本身没有证据，
+    不算半票。
+    Definition of acc (pinned down here so it is not reinterpreted): a
+    pair counts as a hit only if **margin > 0 strictly**. margin == 0
+    means indifference and is NOT a hit — there is no evidence of
+    preference, so it is not half a vote either.
     """
     delta_c = pol_c - ref_c
     delta_r = pol_r - ref_r

@@ -290,6 +290,31 @@ cycles, plateau alarm). `homeo_lm.metaexp` runs the A-E control grid,
 verifies equal compute, and judges superadditivity with an explicit
 evidence floor (MIN_MARGIN) so a 0.01 edge cannot be declared a win.
 
+### 实验 Harness（`homeo_lm.harness`，2026-11-01）
+
+四层闭环各自成立，但**没有一层回答过那个问题**：
+
+> 指标涨了，是因为"自我改进有效"，还是因为**同等算力下闷头多训也会涨**？
+
+`metaexp` 只给计划与判定；harness 负责**真的跑完并汇总**：
+
+- 网格 `{A,B,C,D,E} × seeds`，每格**同等算力预算**
+- `equal_compute()` 会**核对**预算是否真相等，不等则整轮作废（这是保护：
+  算力不等的比较等于没比）
+- 步骤**全部走子进程**复用已有 CLI，不在同一进程叠模型
+- `--resume` 跳过已完成格子；结果落 `runs/harness_results.jsonl`
+- 判定：**超可加性** `D > A` 且 `D > B` 且 `D > C`
+
+组的定义写成**可审计的表**（不是散落的 if）：A=固定课程（对照）、
+B=L0 旋钮、C=L1 数据、D=**先 C 再 B**、E=D+L2。
+Experiment harness (`homeo_lm.harness`): the four loops each work, but
+none answers 'did it improve because self-improvement works, or because
+training longer at equal compute would too?'. `metaexp` only plans and
+judges; the harness actually RUNS the grid and aggregates: equal compute
+per cell, verified; subprocess stages; --resume; results in
+`runs/harness_results.jsonl`; verdict = superadditivity `D > A`, `D > B`,
+`D > C`. Group definitions are an auditable table.
+
 **P0 的硬前置**：当前探针被系统内存卡住（`OSError 1455`），需先释放内存
 或扩大页面文件。测量不跑起来，后面全是无根据的自我修改。
 Hard prerequisite for P0: the probe is currently blocked by system memory.

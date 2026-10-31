@@ -357,6 +357,37 @@ must be recorded, not hidden**.
 
 Run: `py -3.12 -m homeo_lm.metaexp --groups ABCDE`
 
+### Experiment harness (2026-11-01): the A-E grid x seeds in one command
+
+All four loops work, but **not one of them answers this question**:
+
+> did the metric go up because self-improvement works, or because **at
+> equal compute, just training longer would also raise it**?
+
+`homeo_lm.harness` exists to answer it:
+
+| Part | Behaviour |
+|---|---|
+| grid | `{A,B,C,D,E} x seeds`, each cell at an **equal compute budget** |
+| compute check | `equal_compute()` VERIFIES the budgets are genuinely equal; if not, the whole round is void |
+| subprocess stages | reuses the existing CLIs (generate / train / measure); **no model stacking in one process** |
+| resume | `--resume` skips completed `(group, seed)` cells |
+| results | `runs/harness_results.jsonl`, one line per cell |
+| verdict | **superadditivity**: `D > A` and `D > B` and `D > C` |
+
+Group definitions are an **auditable table**, not scattered conditionals:
+
+| Group | Stages | Answers |
+|---|---|---|
+| A | one fixed-data training run | how much performance raw compute buys (**control**) |
+| B | L0 knob tuning | is self-tuning worth it |
+| C | L1 self-generated data | is self-generated signal worth it |
+| D | **C then B** | are they complementary (superadditivity) |
+| E | D + L2 | how much changing the learning rule adds |
+
+Run: `py -3.12 -m homeo_lm.harness --groups ABCDE --seeds 0,1,2`
+(`--run` to execute)
+
 ## The real-run pipeline: `scripts/` (2026-11-01)
 
 All four RSI levels are code-complete but **entirely dry-run**. Running
